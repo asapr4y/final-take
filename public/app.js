@@ -1,7 +1,11 @@
+import { renderCityScene, mountCityScene } from './city-scene.js';
+
 const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => [...scope.querySelectorAll(selector)];
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const state = { user: null, csrf: null, route: 0, controller: null, detail: null, authMode: 'register', afterAuth: null, lastFocus: null, listPage: 1 };
+const state = { user: null, csrf: null, route: 0, controller: null, detail: null, authMode: 'register', afterAuth: null, lastFocus: null, listPage: 1, shelfFilms: [], shelfIndex: 0, motionPaused: false };
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+let revealObserver;
 const main = $('#main');
 const genres = [[28, 'Action'], [12, 'Adventure'], [16, 'Animation'], [35, 'Comedy'], [80, 'Crime'], [18, 'Drama'], [14, 'Fantasy'], [27, 'Horror'], [9648, 'Mystery'], [10749, 'Romance'], [878, 'Sci-fi'], [53, 'Thriller']];
 const arrow = '<span aria-hidden="true">↗</span>';
@@ -13,7 +17,7 @@ const initials = name => escape(String(name).split(/\s+/).slice(0, 2).map(word =
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const dateLabel = date => new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(`${date.slice(0, 10)}T12:00:00`));
 const stars = rating => `<span class="stars" aria-label="${rating} out of 5 stars">${'★'.repeat(Math.floor(rating))}${rating % 1 ? '½' : ''}<span class="stars-empty">${'☆'.repeat(Math.max(0, 5 - Math.ceil(rating)))}</span></span>`;
-function placeholder(title) { return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="500" height="750"><rect width="500" height="750" fill="#dedbd1"/><text x="250" y="350" text-anchor="middle" fill="#565d50" font-family="Georgia" font-size="30">${String(title).replace(/[<>&"']/g, '').slice(0, 24)}</text><text x="250" y="400" text-anchor="middle" fill="#a65a3d" font-family="Arial" font-size="15">FINAL TAKE</text></svg>`)}`; }
+function placeholder(title) { return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="500" height="750"><rect width="500" height="750" fill="#252525"/><text x="250" y="350" text-anchor="middle" fill="#f2f2f2" font-family="Arial" font-size="30">${String(title).replace(/[<>&"']/g, '').slice(0, 24)}</text><text x="250" y="400" text-anchor="middle" fill="#ce352b" font-family="Arial" font-size="15">FINAL TAKE</text></svg>`)}`; }
 
 async function api(path, { method = 'GET', data, signal } = {}) {
   const response = await fetch(path, { method, credentials: 'same-origin', signal,
@@ -30,7 +34,7 @@ function toast(message) { const node = $('#toast'); node.textContent = message; 
 function renderAccount() {
   $('#headerAccount').innerHTML = state.user
     ? `<details class="account-menu"><summary><span class="avatar avatar-small">${initials(state.user.name)}</span><span class="account-name">${escape(state.user.name)}</span><span class="menu-chevron">⌄</span></summary><div class="account-dropdown"><a href="/u/${state.user.username}">Your profile ${arrow}</a><button data-edit-profile>Edit profile</button><button data-logout>Sign out</button></div></details>`
-    : `<button class="text-button signin-button" data-auth="login">Sign in</button><button class="button button-dark button-small" data-auth="register">Start your diary ${arrow}</button>`;
+    : `<button class="text-button signin-button" data-auth="login">Sign in</button><button class="button button-primary button-small" data-auth="register">Start your diary ${arrow}</button>`;
 }
 function navigate(path, replace = false) {
   if (replace) history.replaceState(null, '', path); else history.pushState(null, '', path);
@@ -49,14 +53,62 @@ function sectionHeading(kicker, title, link = '') {
   return `<div class="section-heading"><div><p class="eyebrow">${kicker}</p><h2>${title}</h2></div>${link}</div>`;
 }
 function homeView(films) {
-  const fan = [films[8] || films[1], films[9] || films[2], films[0]].filter(Boolean);
-  return `<section class="home-hero page-width">
-    <div class="hero-copy"><p class="eyebrow"><span class="live-dot"></span> A LITTLE MORE THAN WATCHING</p><h1>Every film<br>leaves a <em>mark.</em></h1><p class="hero-description">Keep a little of every film. The ones you loved, the ones you didn’t, and the ones you’re still thinking about.</p><div class="button-row"><button class="button button-rust" ${state.user ? 'data-go-diary' : 'data-auth="register"'}>${state.user ? 'Open your diary' : 'Make your first entry'} ${arrow}</button><a class="text-link" href="/films">Find your next film <span aria-hidden="true">→</span></a></div><div class="hero-footnote"><span class="tiny-stars" aria-hidden="true">★★★★★</span><span>Your taste. Your words. Your final take.</span></div></div>
-    <div class="hero-art" aria-label="Films worth keeping"><span class="art-orbit" aria-hidden="true"></span><div class="poster-fan">${fan.map((film, index) => `<a class="fan-film fan-${index}" href="/film/${film.id}" aria-label="Discover ${escape(film.title)}"><img src="${escape(film.poster || placeholder(film.title))}" alt="${escape(film.title)} poster" width="500" height="750" /></a>`).join('')}</div><span class="art-ticket"><span class="ticket-star" aria-hidden="true">✳</span> ADMIT ONE<br><small>TO YOUR NEXT OBSESSION</small></span><span class="art-caption">THE PICTURE IS JUST THE BEGINNING.</span></div>
+  const preferred = [550, 807, 603, 129, 120467].map(id => films.find(film => film.id === id)).filter(Boolean);
+  const seen = new Set();
+  const shelf = [...preferred, ...films].filter(film => !seen.has(film.id) && seen.add(film.id)).slice(0, 5);
+  state.shelfFilms = shelf; state.shelfIndex = 0;
+  const first = shelf[0];
+  const billboardIds = new Set();
+  const billboards = [...[550, 603, 120467, 129].map(id => films.find(film => film.id === id)).filter(Boolean), ...films]
+    .filter(film => !billboardIds.has(film.id) && billboardIds.add(film.id)).slice(0, 4);
+  const billboardPositions = ['left-main', 'right-main', 'left-far', 'right-far'];
+  const billboard = (film, index) => `<a class="city-poster city-poster-${billboardPositions[index]}" href="/film/${film.id}" aria-label="View ${escape(film.title)}, ${escape(film.year)}"><span class="city-poster-heading"><span>${index < 2 ? 'NOW SHOWING' : 'THE LATE SHOW'}</span><span aria-hidden="true">${String(index + 1).padStart(2, '0')}</span></span><span class="city-poster-art"><img src="${escape(film.poster || placeholder(film.title))}" alt="" width="500" height="750" fetchpriority="${index < 2 ? 'high' : 'low'}" /><span class="city-poster-invitation" aria-hidden="true">TAKE A CLOSER LOOK ${arrow}</span></span><span class="city-poster-caption"><span>${escape(film.title)}</span><span class="city-poster-arrow" aria-hidden="true">&nearr;</span></span></a>`;
+  const ticker = '<span>WATCH SOMETHING. FEEL SOMETHING.</span><b>&#10033;</b><span>LEAVE YOUR FINAL TAKE.</span><b>&#10033;</b><span>BE KIND. REWIND.</span><b>&#10033;</b>';
+  return `<section class="city-hero" aria-label="The Final Take picture house">
+    <div class="city-stage">
+      ${renderCityScene()}
+      <div class="city-shade" aria-hidden="true"></div>
+      <div class="city-topline page-width"><p><span class="record-dot" aria-hidden="true"></span> THE PERSONAL PICTURE HOUSE</p><button class="motion-toggle" type="button" data-toggle-motion aria-pressed="${state.motionPaused}" ${reducedMotion.matches ? 'disabled' : ''}><span class="motion-bars" aria-hidden="true"><i></i><i></i><i></i></span><span data-motion-label>${reducedMotion.matches ? 'Reduced motion' : state.motionPaused ? 'Resume motion' : 'Pause motion'}</span></button></div>
+      <div class="city-billboard"><p class="city-sign-kicker">FOR THE FILMS THAT STAY WITH YOU</p><h1 class="city-title"><img class="city-logo" src="/wordmark.svg" alt="Final Take" width="677" height="220" /></h1></div>
+      <button class="city-letterboard" type="button" ${state.user ? 'data-go-diary' : 'data-auth="register"'} aria-label="${state.user ? 'Open your diary' : 'Start your diary'}"><span class="marquee-copy-window" aria-hidden="true"><span class="marquee-copy-track"><span>YOUR LIFE IN FILMS</span><span>MAKE YOUR FINAL TAKE</span><span>YOUR LIFE IN FILMS</span></span></span><span class="marquee-action">${state.user ? 'OPEN YOUR DIARY' : 'START YOUR DIARY'} <span aria-hidden="true">&nearr;</span></span></button>
+      <nav class="city-poster-district" aria-label="Films on the billboards">${billboards.map(billboard).join('')}</nav>
+      <div class="city-neon-halo" aria-hidden="true"></div><div class="city-haze" aria-hidden="true"></div><div class="city-reflections" aria-hidden="true"></div><div class="city-light-runner" aria-hidden="true"></div>
+      <p class="city-scene-note"><span aria-hidden="true">&darr;</span> PICK A POSTER. FIND YOUR NEXT GREAT FILM.</p>
+    </div>
+    <div class="city-dock page-width"><div><p class="eyebrow">A PERSONAL FILM JOURNAL</p><h2>Your own little corner of cinema.</h2><p>Rate, review, and remember the films that stay with you.</p></div><a class="city-explore" href="/films">Find your next film ${arrow}</a></div>
   </section>
-  <div class="marquee" aria-hidden="true"><span>WATCH CLOSELY</span><span>✳</span><span>FEEL SOMETHING</span><span>✳</span><span>WRITE IT DOWN</span><span>✳</span><span>DO IT AGAIN</span><span>✳</span><span>WATCH CLOSELY</span></div>
-  <section class="page-width section-space">${sectionHeading('THE STARTER SELECTION', 'A few worth your evening.', `<a class="text-link" href="/films">Explore all films ${arrow}</a>`)}<div class="poster-grid home-grid">${films.slice(0, 6).map((film, i) => filmCard(film, { index: i })).join('')}</div></section>
-  <section class="manifesto page-width"><div class="manifesto-intro"><span class="outlined-star" aria-hidden="true">✳</span><p class="eyebrow">GOOD FILMS DESERVE GOOD COMPANY</p><h2>A diary for your<br><em>life in films.</em></h2><p>Not a race to watch more.<br>A place to remember what mattered.</p></div><div class="manifesto-steps"><a href="/films"><span>01</span><div><h3>Find the next one.</h3><p>Browse new worlds, old favorites, and everything in between.</p></div>${arrow}</a><button ${state.user ? 'data-go-diary' : 'data-auth="register"'}><span>02</span><div><h3>Leave your take.</h3><p>Half a star or a whole heart. Give a film a rating, a date, and your own words.</p></div>${arrow}</button><a href="/watchlist"><span>03</span><div><h3>Keep the good ones close.</h3><p>A watchlist for what’s next. A diary for what stays.</p></div>${arrow}</a></div></section>`;
+  <div class="film-ticker" aria-hidden="true"><div class="ticker-track"><div class="ticker-group">${ticker}</div><div class="ticker-group">${ticker}</div></div></div>
+  <section class="page-width section-space opening-selection" id="opening-selection" data-reveal>${sectionHeading('NOW SHOWING IN YOUR NEXT GREAT EVENING', 'Make a night of it.', `<a class="text-link" href="/films">Browse all films ${arrow}</a>`)}<div class="poster-grid home-grid">${films.slice(0, 6).map(film => filmCard(film)).join('')}</div></section>
+  <section class="archive-section page-width" data-reveal><div class="archive-intro"><p class="eyebrow">FROM THE VIDEO STORE</p><h2>The late-night shelf.</h2><p>Some discoveries are worth staying up for. Pull out a tape and find something that sticks with you.</p><a class="text-link" href="/films">The full collection ${arrow}</a></div>
+${first ? `<div class="video-store"><div class="deck-heading"><span class="deck-play"><i aria-hidden="true"></i> PLAY</span><span class="deck-caption">GOOD FILMS. GREAT COMPANY.</span><span class="deck-format" aria-hidden="true">SP / VHS</span></div><div class="shelf-stage"><div class="shelf-cases" id="vhsShelf" role="group" aria-label="Choose a film from the video shelf">${shelf.map((film,i) => `<button class="vhs-case case-tone-${i % 3} ${i === 0 ? 'is-selected' : ''}" type="button" data-shelf-select="${i}" aria-label="Select ${escape(film.title)}" aria-pressed="${i === 0}"><span class="vhs-spine" aria-hidden="true"><span class="spine-imprint">FINAL TAKE<br>VIDEO CLUB</span><strong>${escape(film.title)}</strong><span class="spine-footer"><span>${escape(film.year)}</span><b>VHS</b></span></span><span class="vhs-cover" aria-hidden="true"><img src="${escape(film.poster || placeholder(film.title))}" alt="" width="500" height="750" ${i === 0 ? 'fetchpriority="high"' : 'loading="lazy"'} /><span class="cover-footer"><b>VHS</b><span class="vhs-reels"><i></i><i></i></span><span>FINAL TAKE<br>HOME CINEMA</span></span></span></button>`).join('')}</div><div class="shelf-base" aria-hidden="true"><span>THE PERSONAL COLLECTION</span><span>PLEASE REWIND AFTER WATCHING</span></div></div><div class="shelf-film-caption" aria-live="polite" aria-atomic="true"><div><p class="eyebrow">ON THE SHELF <span id="shelfCounter">01 / ${String(shelf.length).padStart(2,'0')}</span></p><h2><a id="shelfFilmLink" href="/film/${first.id}">${escape(first.title)}</a></h2><p id="shelfFilmMeta">${escape(first.year)}${first.director ? ` / ${escape(first.director)}` : ''}</p></div><a class="shelf-open" id="shelfOpenLink" href="/film/${first.id}" aria-label="View ${escape(first.title)}">${arrow}</a></div><p class="shelf-hint">Pick a spine. Find your next obsession.</p></div>` : ''}
+  </section>
+  <section class="manifesto page-width" data-reveal><div class="manifesto-intro"><p class="eyebrow">NO WRONG ANSWERS. JUST YOUR TAKE.</p><h2>You bring the taste.<br>We keep the memories.</h2><p>Five stars or a hot take. A midnight rewatch or a first-time favorite. Make it part of your story.</p></div><div class="manifesto-steps"><a href="/films"><span>01</span><div><h3>Find your next obsession.</h3><p>Old favorites, unexpected discoveries, and everything in between.</p></div>${arrow}</a><button ${state.user ? 'data-go-diary' : 'data-auth="register"'}><span>02</span><div><h3>Leave your final take.</h3><p>A rating, a date, a few words. The way you remember it.</p></div>${arrow}</button><a href="/watchlist"><span>03</span><div><h3>Keep a little anticipation.</h3><p>Save a film for the next rainy night.</p></div>${arrow}</a></div></section>
+  ${films.length > 6 ? `<section class="page-width section-space further-selection" data-reveal>${sectionHeading('DIG A LITTLE DEEPER', 'There&rsquo;s more in the back.', `<a class="text-link" href="/films">Keep exploring ${arrow}</a>`)}<div class="poster-grid home-grid">${films.slice(6, 12).map(film => filmCard(film)).join('')}</div></section>` : ''}`;
+}
+function selectShelfFilm(index, focus = false) {
+  const shelf = $('#vhsShelf'), film = state.shelfFilms[index];
+  if (!shelf || !film) return;
+  state.shelfIndex = index;
+  $$('[data-shelf-select]', shelf).forEach((button,i) => {
+    button.classList.toggle('is-selected', i === index); button.setAttribute('aria-pressed', String(i === index));
+  });
+  $('#shelfFilmLink').textContent = film.title;
+  $('#shelfFilmLink').href = `/film/${film.id}`;
+  $('#shelfOpenLink').href = `/film/${film.id}`;
+  $('#shelfOpenLink').setAttribute('aria-label', `View ${film.title}`);
+  $('#shelfFilmMeta').textContent = `${film.year}${film.director ? ` / ${film.director}` : ''}`;
+  $('#shelfCounter').textContent = `${String(index+1).padStart(2,'0')} / ${String(state.shelfFilms.length).padStart(2,'0')}`;
+  if (focus) $$('[data-shelf-select]', shelf)[index].focus({preventScroll:true});
+}
+function initializeMotion() {
+  mountCityScene();
+  revealObserver?.disconnect();
+  document.body.classList.toggle('motion-paused', state.motionPaused);
+  if (reducedMotion.matches || state.motionPaused || !('IntersectionObserver' in window)) return;
+  revealObserver = new IntersectionObserver(entries => {
+    for (const entry of entries) if (entry.isIntersecting) { entry.target.classList.remove('reveal-pending'); revealObserver.unobserve(entry.target); }
+  }, {threshold: .06});
+  $$('[data-reveal]', main).forEach(section => { section.classList.add('reveal-pending'); revealObserver.observe(section); });
 }
 function discoverView(result, params) {
   const query = params.get('q') || '', genre = params.get('genre') || '', sort = params.get('sort') || 'popular';
@@ -73,15 +125,15 @@ function emptyState(title, description, action = '') {
 }
 function authGate(section) {
   const diary = section === 'diary';
-  return `<section class="page-width gate-page"><p class="eyebrow">YOUR LIFE, FRAME BY FRAME</p><h1>${diary ? 'A story only<br><em>you can write.</em>' : 'So many films.<br><em>Something to look forward to.</em>'}</h1><p>${diary ? 'Keep your ratings, reviews, and watched dates together. Start a diary, and make every viewing a little more memorable.' : 'All those “I need to watch that” moments, collected in one good place.'}</p><button class="button button-rust" data-auth="register">${diary ? 'Start your diary' : 'Create your watchlist'} ${arrow}</button><p class="gate-signin">Already here? <button class="text-button" data-auth="login">Sign in</button></p></section>`;
+  return `<section class="page-width gate-page"><p class="eyebrow">YOUR LIFE, FRAME BY FRAME</p><h1>${diary ? 'A story only<br><em>you can write.</em>' : 'So many films.<br><em>Something to look forward to.</em>'}</h1><p>${diary ? 'Keep your ratings, reviews, and watched dates together. Start a diary, and make every viewing a little more memorable.' : 'All those “I need to watch that” moments, collected in one good place.'}</p><button class="button button-primary" data-auth="register">${diary ? 'Start your diary' : 'Create your watchlist'} ${arrow}</button><p class="gate-signin">Already here? <button class="text-button" data-auth="login">Sign in</button></p></section>`;
 }
 function diaryView(entries) {
   const average = entries.length ? (entries.reduce((sum, e) => sum + e.rating, 0) / entries.length).toFixed(1) : '—';
-  return `<section class="page-width collection-page"><div class="collection-heading"><div><p class="eyebrow">THE FILMS, THE FEELINGS, THE FOOTNOTES</p><h1>Your <em>diary.</em></h1><p>Every viewing has a story. Here’s yours.</p></div><a class="button button-dark" href="/films">Log a film ${plus}</a></div><div class="diary-summary"><div><strong>${entries.length}</strong><span>viewings logged</span></div><div><strong>${new Set(entries.map(e => e.film.id)).size}</strong><span>different films</span></div><div><strong>${average}</strong><span>average rating</span></div></div>
-    ${entries.length ? `<div class="diary-list">${entries.map(entry => `<article class="diary-entry"><div class="entry-date"><strong>${new Date(entry.watchedOn + 'T12:00:00').getDate()}</strong><span>${new Intl.DateTimeFormat('en', { month: 'short', year: 'numeric' }).format(new Date(entry.watchedOn + 'T12:00:00'))}</span></div><a class="diary-poster" href="/film/${entry.film.id}"><img src="${escape(entry.film.poster || placeholder(entry.film.title))}" alt="${escape(entry.film.title)} poster" width="500" height="750" /></a><div class="diary-copy"><h2><a href="/film/${entry.film.id}">${escape(entry.film.title)}</a><span>${escape(entry.film.year)}</span></h2>${stars(entry.rating)}${entry.review ? `<p>${escape(entry.review.slice(0, 240))}${entry.review.length > 240 ? '…' : ''}</p>` : '<p class="quiet">A film remembered, even without the words.</p>'}${entry.spoilers ? '<span class="spoiler-tag">Contains spoilers</span>' : ''}</div><div class="entry-actions"><a class="text-link" href="/film/${entry.film.id}?edit=${entry.id}">Edit</a><button class="text-button muted" data-delete-entry="${entry.id}">Delete</button></div></article>`).join('')}</div>` : emptyState('The opening page is yours.', 'Find a film you’ve seen and leave your first take.', '<a class="button button-rust" href="/films">Find a film ↗</a>')}</section>`;
+  return `<section class="page-width collection-page"><div class="collection-heading"><div><p class="eyebrow">THE FILMS, THE FEELINGS, THE FOOTNOTES</p><h1>Your <em>diary.</em></h1><p>Every viewing has a story. Here’s yours.</p></div><a class="button button-primary" href="/films">Log a film ${plus}</a></div><div class="diary-summary"><div><strong>${entries.length}</strong><span>viewings logged</span></div><div><strong>${new Set(entries.map(e => e.film.id)).size}</strong><span>different films</span></div><div><strong>${average}</strong><span>average rating</span></div></div>
+    ${entries.length ? `<div class="diary-list">${entries.map(entry => `<article class="diary-entry"><div class="entry-date"><strong>${new Date(entry.watchedOn + 'T12:00:00').getDate()}</strong><span>${new Intl.DateTimeFormat('en', { month: 'short', year: 'numeric' }).format(new Date(entry.watchedOn + 'T12:00:00'))}</span></div><a class="diary-poster" href="/film/${entry.film.id}"><img src="${escape(entry.film.poster || placeholder(entry.film.title))}" alt="${escape(entry.film.title)} poster" width="500" height="750" /></a><div class="diary-copy"><h2><a href="/film/${entry.film.id}">${escape(entry.film.title)}</a><span>${escape(entry.film.year)}</span></h2>${stars(entry.rating)}${entry.review ? `<p>${escape(entry.review.slice(0, 240))}${entry.review.length > 240 ? '…' : ''}</p>` : '<p class="quiet">A film remembered, even without the words.</p>'}${entry.spoilers ? '<span class="spoiler-tag">Contains spoilers</span>' : ''}</div><div class="entry-actions"><a class="text-link" href="/film/${entry.film.id}?edit=${entry.id}">Edit</a><button class="text-button muted" data-delete-entry="${entry.id}">Delete</button></div></article>`).join('')}</div>` : emptyState('The opening page is yours.', 'Find a film you’ve seen and leave your first take.', '<a class="button button-primary" href="/films">Find a film ↗</a>')}</section>`;
 }
 function watchlistView(films) {
-  return `<section class="page-width collection-page"><div class="collection-heading"><div><p class="eyebrow">FOR A RAINY NIGHT, A SUNDAY, OR RIGHT NOW</p><h1>The <em>watchlist.</em></h1><p>${films.length ? `${films.length} ${films.length === 1 ? 'film' : 'films'} waiting for the right moment.` : 'Your next great watch starts here.'}</p></div><a class="button button-outline" href="/films">Find something good ${arrow}</a></div><div class="poster-grid">${films.length ? films.map(film => filmCard(film, { remove: true })).join('') : emptyState('Make room for a little anticipation.', 'Tap the + on a film to save it for later.', '<a class="button button-rust" href="/films">Explore films ↗</a>')}</div></section>`;
+  return `<section class="page-width collection-page"><div class="collection-heading"><div><p class="eyebrow">FOR A RAINY NIGHT, A SUNDAY, OR RIGHT NOW</p><h1>The <em>watchlist.</em></h1><p>${films.length ? `${films.length} ${films.length === 1 ? 'film' : 'films'} waiting for the right moment.` : 'Your next great watch starts here.'}</p></div><a class="button button-outline" href="/films">Find something good ${arrow}</a></div><div class="poster-grid">${films.length ? films.map(film => filmCard(film, { remove: true })).join('') : emptyState('Make room for a little anticipation.', 'Tap the + on a film to save it for later.', '<a class="button button-primary" href="/films">Explore films ↗</a>')}</div></section>`;
 }
 function reviewCard(entry, own = false) {
   return `<article class="review-card"><div class="review-author"><a class="avatar avatar-small" href="/u/${entry.username}">${initials(entry.name)}</a><div><a href="/u/${entry.username}">${escape(entry.name)}</a><span>Watched ${dateLabel(entry.watchedOn)}</span></div>${stars(entry.rating)}</div>${entry.spoilers && !own ? `<details class="spoiler-review"><summary>Contains spoilers — reveal review</summary><p>${escape(entry.review)}</p></details>` : `<p>${escape(entry.review)}</p>`}${own ? `<a class="text-link small-link" href="/film/${entry.film.id}?edit=${entry.id}">Edit your entry ${arrow}</a>` : ''}</article>`;
@@ -94,7 +146,7 @@ function entryForm(film, editing = null) {
     <label>Watched on<input type="date" name="watchedOn" value="${editing?.watchedOn || today()}" max="${today()}" min="1888-01-01" required /></label>
     <label>Your review <span class="optional">(optional)</span><textarea name="review" maxlength="5000" rows="5" placeholder="What stayed with you?">${escape(editing?.review || '')}</textarea></label>
     <label class="checkbox-label"><input type="checkbox" name="spoilers" ${editing?.spoilers ? 'checked' : ''} /> This review contains spoilers</label>
-    <p class="form-error" role="alert"></p><button class="button button-dark" type="submit">${editing ? 'Save changes' : 'Log this film'} ${arrow}</button>
+    <p class="form-error" role="alert"></p><button class="button button-primary" type="submit">${editing ? 'Save changes' : 'Log this film'} ${arrow}</button>
     ${editing ? `<a class="text-link small-link" href="/film/${film.id}">Cancel editing</a>` : '<p class="log-note">Another watch? Another entry. Every viewing counts.</p>'}
   </form>`;
 }
@@ -106,7 +158,7 @@ function filmView(detail, params) {
     <div class="page-width film-layout"><aside class="film-poster-column"><img class="detail-poster" src="${escape(film.poster || placeholder(film.title))}" alt="${escape(film.title)} poster" width="500" height="750" /><div class="film-collection-actions"><button class="button button-outline ${my?.watchlisted ? 'is-saved' : ''}" data-toggle-watchlist="${film.id}" data-saved="${Boolean(my?.watchlisted)}">${my?.watchlisted ? checkIcon : bookmark}${my?.watchlisted ? 'In your watchlist' : 'Add to watchlist'}</button><button class="text-button favorite-action" data-toggle-favorite="${film.id}" data-saved="${Boolean(my?.favorite)}">${my?.favorite ? '♥ In your four favorites' : '♡ Make it a favorite'}</button></div></aside>
     <div class="film-story"><p class="eyebrow">THE STORY</p>${film.tagline ? `<h2 class="tagline">${escape(film.tagline)}</h2>` : ''}<p class="film-overview">${escape(film.overview)}</p><div class="film-facts"><div><span>RELEASED</span><strong>${escape(film.year || 'Not announced')}</strong></div><div><span>GENRES</span><strong>${escape(film.genres.join(', ') || 'Unlisted')}</strong></div>${film.director ? `<div><span>DIRECTOR</span><strong>${escape(film.director)}</strong></div>` : ''}</div>
     <section class="reviews-section"><div class="section-heading"><div><p class="eyebrow">EVERY FILM STARTS A CONVERSATION</p><h2>The takes.</h2></div><span class="review-count">${reviews.length} ${reviews.length === 1 ? 'review' : 'reviews'}</span></div>${aggregate.count ? `<div class="community-rating">${stars(aggregate.average)}<strong>${aggregate.average}/5</strong><span>from ${aggregate.count} ${aggregate.count === 1 ? 'viewing' : 'viewings'}</span></div>` : ''}${reviews.length ? reviews.map(entry => reviewCard(entry, entry.userId === state.user?.id)).join('') : '<div class="review-empty"><span aria-hidden="true">“</span><p>No reviews yet.<br>There’s room here for your perspective.</p></div>'}</section></div>
-    <aside class="film-log-column">${state.user ? `${my?.entries.length && !editing ? `<div class="last-viewing">${checkIcon}<div>Already part of your diary<small>Last watched ${dateLabel(my.entries[0].watchedOn)} · ${my.entries[0].rating}/5</small></div></div>` : ''}${entryForm(film, editing)}` : `<div class="join-card"><span class="join-symbol" aria-hidden="true">✳</span><p class="eyebrow">YOU HAVE A TAKE.</p><h2>Give it a<br>place to live.</h2><p>Rate this film, write a review, and keep it in your own film diary.</p><button class="button button-rust" data-auth="register">Start your diary ${arrow}</button><button class="text-button" data-auth="login">Already a member? Sign in</button></div>`}</aside></div>`;
+    <aside class="film-log-column">${state.user ? `${my?.entries.length && !editing ? `<div class="last-viewing">${checkIcon}<div>Already part of your diary<small>Last watched ${dateLabel(my.entries[0].watchedOn)} · ${my.entries[0].rating}/5</small></div></div>` : ''}${entryForm(film, editing)}` : `<div class="join-card"><span class="join-symbol" aria-hidden="true">✳</span><p class="eyebrow">YOU HAVE A TAKE.</p><h2>Give it a<br>place to live.</h2><p>Rate this film, write a review, and keep it in your own film diary.</p><button class="button button-primary" data-auth="register">Start your diary ${arrow}</button><button class="text-button" data-auth="login">Already a member? Sign in</button></div>`}</aside></div>`;
 }
 function profileView(profile) {
   const own = profile.user.id === state.user?.id;
@@ -130,9 +182,9 @@ async function renderRoute() {
     else if (path === '/watchlist') { html = state.user ? watchlistView((await api('/api/me/watchlist', { signal })).films) : authGate('watchlist'); title = 'Your watchlist'; }
     else if (/^\/film\/\d+$/.test(path)) { const detail = await api(`/api/films/${path.split('/')[2]}`, { signal }); if (route !== state.route) return; state.detail = detail; html = filmView(detail, params); title = detail.film.title; }
     else if (/^\/u\/[a-zA-Z0-9_]+$/.test(path)) { const profile = await api(`/api/members/${path.split('/')[2]}`, { signal }); html = profileView(profile); title = profile.user.name; }
-    else html = `<section class="page-width">${emptyState('A missing reel.', 'This page isn’t part of the story. Let’s find you a good film instead.', '<a class="button button-rust" href="/films">Back to discoveries ↗</a>')}</section>`;
+    else html = `<section class="page-width">${emptyState('A missing reel.', 'This page isn’t part of the story. Let’s find you a good film instead.', '<a class="button button-primary" href="/films">Back to discoveries ↗</a>')}</section>`;
     if (route !== state.route) return;
-    main.innerHTML = html; document.title = `${title} — Final Take`;
+    main.innerHTML = html; initializeMotion(); document.title = `${title} — Final Take`;
     if (params.has('edit')) $('#entryForm')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   } catch (error) {
     if (error.name === 'AbortError' || route !== state.route) return;
@@ -142,7 +194,7 @@ async function renderRoute() {
 function renderAuth(mode) {
   state.authMode = mode;
   const register = mode === 'register';
-  $('#authContent').innerHTML = `<span class="modal-mark" aria-hidden="true">f.</span><p class="eyebrow">${register ? 'THE FIRST PAGE IS YOURS' : 'BACK FOR ANOTHER CHAPTER'}</p><h2 id="authTitle">${register ? 'A life in films.<br>Starting with yours.' : 'Good to see<br>you again.'}</h2><p class="modal-intro">${register ? 'Make room for the films that stay with you.' : 'Your diary is right where you left it.'}</p><form id="authForm" class="stack-form">${register ? '<div class="form-two"><label>Your name<input name="name" autocomplete="name" maxlength="50" required placeholder="Alex Rivera" /></label><label>Username<input name="username" autocomplete="username" pattern="[A-Za-z0-9_]{3,24}" minlength="3" maxlength="24" required placeholder="alexinframes" /></label></div>' : ''}<label>${register ? 'Email address' : 'Email or username'}<input name="email" type="${register ? 'email' : 'text'}" autocomplete="${register ? 'email' : 'username'}" required maxlength="254" placeholder="${register ? 'you@example.com' : 'Your email or username'}" /></label><label>Password<input type="password" name="password" autocomplete="${register ? 'new-password' : 'current-password'}" ${register ? 'minlength="10"' : ''} maxlength="128" required placeholder="${register ? 'At least 10 characters' : 'Your password'}" /></label><p class="form-error" role="alert"></p><button class="button button-rust" type="submit">${register ? 'Create your diary' : 'Sign in'} ${arrow}</button></form><p class="auth-switch">${register ? 'Already have a diary?' : 'New around here?'} <button class="text-button" data-auth-switch="${register ? 'login' : 'register'}">${register ? 'Sign in' : 'Start yours'}</button></p>`;
+  $('#authContent').innerHTML = `<img class="modal-mark" src="/wordmark.svg" alt="" width="677" height="220" /><p class="eyebrow">${register ? 'THE FIRST PAGE IS YOURS' : 'BACK FOR ANOTHER CHAPTER'}</p><h2 id="authTitle">${register ? 'A life in films.<br>Starting with yours.' : 'Good to see<br>you again.'}</h2><p class="modal-intro">${register ? 'Make room for the films that stay with you.' : 'Your diary is right where you left it.'}</p><form id="authForm" class="stack-form">${register ? '<div class="form-two"><label>Your name<input name="name" autocomplete="name" maxlength="50" required placeholder="Alex Rivera" /></label><label>Username<input name="username" autocomplete="username" pattern="[A-Za-z0-9_]{3,24}" minlength="3" maxlength="24" required placeholder="alexinframes" /></label></div>' : ''}<label>${register ? 'Email address' : 'Email or username'}<input name="email" type="${register ? 'email' : 'text'}" autocomplete="${register ? 'email' : 'username'}" required maxlength="254" placeholder="${register ? 'you@example.com' : 'Your email or username'}" /></label><label>Password<input type="password" name="password" autocomplete="${register ? 'new-password' : 'current-password'}" ${register ? 'minlength="10"' : ''} maxlength="128" required placeholder="${register ? 'At least 10 characters' : 'Your password'}" /></label><p class="form-error" role="alert"></p><button class="button button-primary" type="submit">${register ? 'Create your diary' : 'Sign in'} ${arrow}</button></form><p class="auth-switch">${register ? 'Already have a diary?' : 'New around here?'} <button class="text-button" data-auth-switch="${register ? 'login' : 'register'}">${register ? 'Sign in' : 'Start yours'}</button></p>`;
 }
 function openAuth(mode = 'register', after = null) { state.afterAuth = after; state.lastFocus = document.activeElement; renderAuth(mode); $('#authDialog').showModal(); }
 function requireAccount(action) { if (state.user) return action(); openAuth('register', action); }
@@ -158,6 +210,17 @@ async function openProfileEditor() { if (!state.user) return; const form = $('#p
 document.addEventListener('click', async event => {
   const link = event.target.closest('a[href^="/"]');
   if (link && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey && !link.target && event.button === 0) { event.preventDefault(); navigate(link.getAttribute('href')); return; }
+  const shelfChoice = event.target.closest('[data-shelf-select]');
+  if (shelfChoice) return selectShelfFilm(Number(shelfChoice.dataset.shelfSelect));
+  const motionToggle = event.target.closest('[data-toggle-motion]');
+  if (motionToggle) {
+    state.motionPaused = !state.motionPaused;
+    document.body.classList.toggle('motion-paused', state.motionPaused);
+    motionToggle.setAttribute('aria-pressed', String(state.motionPaused));
+    $('[data-motion-label]', motionToggle).textContent = state.motionPaused ? 'Resume motion' : 'Pause motion';
+    if (state.motionPaused) { revealObserver?.disconnect(); $$('.reveal-pending', main).forEach(section => section.classList.remove('reveal-pending')); }
+    return;
+  }
   const auth = event.target.closest('[data-auth]'); if (auth) return openAuth(auth.dataset.auth);
   const authSwitch = event.target.closest('[data-auth-switch]'); if (authSwitch) { renderAuth(authSwitch.dataset.authSwitch); $('input', $('#authContent'))?.focus(); return; }
   const close = event.target.closest('[data-close-dialog]'); if (close) return $(`#${close.dataset.closeDialog}`).close();
@@ -193,7 +256,7 @@ document.addEventListener('submit', async event => {
   } catch (error) { errorNode.textContent = error.message; }
   finally { button.disabled = false; }
 });
-document.addEventListener('error', event => { if (event.target.tagName === 'IMG' && !event.target.dataset.fallback) { event.target.dataset.fallback = 'true'; event.target.src = placeholder(event.target.alt.replace(/ poster$/, '') || 'A film to discover'); } }, true);
+document.addEventListener('error', event => { if (event.target.hasAttribute?.('data-hero-art')) { event.target.remove(); return; } if (event.target.tagName === 'IMG' && !event.target.dataset.fallback) { event.target.dataset.fallback = 'true'; event.target.src = placeholder(event.target.alt.replace(/ poster$/, '') || 'A film to discover'); } }, true);
 for (const dialog of $$('dialog')) {
   dialog.addEventListener('click', event => { if (event.target === dialog) { const r = dialog.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) dialog.close(); } });
   dialog.addEventListener('close', () => { if (dialog.id === 'authDialog') state.lastFocus?.isConnected && state.lastFocus.focus(); });
@@ -202,3 +265,19 @@ window.addEventListener('popstate', renderRoute);
 document.addEventListener('keydown', event => { if (event.key === 'Escape') $$('.account-menu[open]').forEach(menu => menu.removeAttribute('open')); });
 async function boot() { try { const result = await api('/api/session'); state.user = result.user; state.csrf = result.csrf; } catch { toast('You’re offline. Reconnect and try again.'); } renderAccount(); await renderRoute(); }
 boot();
+
+document.addEventListener('keydown', event => {
+  const shelfButton = event.target.closest?.('[data-shelf-select]');
+  if (!shelfButton || !['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
+  event.preventDefault();
+  const count=state.shelfFilms.length, current=Number(shelfButton.dataset.shelfSelect);
+  const next=event.key==='Home' ? 0 : event.key==='End' ? count-1 : (current+(event.key==='ArrowRight' ? 1 : -1)+count)%count;
+  selectShelfFilm(next,true);
+});
+reducedMotion.addEventListener('change', () => {
+  const toggle=$('[data-toggle-motion]');
+  if (toggle) { toggle.disabled=reducedMotion.matches; $('[data-motion-label]',toggle).textContent=reducedMotion.matches ? 'Reduced motion' : state.motionPaused ? 'Resume motion' : 'Pause motion'; }
+  initializeMotion();
+});
+
+window.matchMedia('(max-width: 700px)').addEventListener('change', mountCityScene);

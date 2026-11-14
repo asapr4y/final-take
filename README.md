@@ -2,7 +2,7 @@
 
 A personal film diary to discover movies, rate and review what you watch, and organize your watchlist.
 
-An editorial film journal in warm paper, charcoal, olive, and rust. Production accounts, sessions, ratings, reviews, watchlists, and favorites are stored in **Supabase PostgreSQL**. The browser only talks to Final Take's server; database credentials stay server-side.
+A personal film journal in signal red, off-white, and ink black, with a Times Square-inspired night-scene hero, animated theater signage, an interactive VHS shelf, and pause/reduced-motion controls. The hero is built entirely from inline SVG, HTML, and CSS, documented in `design/times-square-scene.json`. Production accounts, sessions, ratings, reviews, watchlists, and favorites are stored in **Supabase PostgreSQL**. The browser only talks to Final Take's server; database credentials stay server-side.
 
 ## Deploy on Vercel with Supabase
 
@@ -98,4 +98,4 @@ Email verification, password recovery, following, notifications, review moderati
 
 ## Credits
 
-Movie metadata and images: [TMDB](https://www.themoviedb.org/). This product uses the TMDB API but is not endorsed or certified by TMDB. Typography: DM Sans and DM Serif Display via Google Fonts.
+Movie metadata and images: [TMDB](https://www.themoviedb.org/). This product uses the TMDB API but is not endorsed or certified by TMDB. Typography: DM Sans via Google Fonts, with a custom Final Take wordmark.

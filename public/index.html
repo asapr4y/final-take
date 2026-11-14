@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#f4f1e9" />
+    <meta name="theme-color" content="#f2f2f2" />
     <meta name="description" content="A little of every film, kept with you. Discover movies, keep a film diary, and make your final take." />
     <title>Final Take — A life in films.</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
@@ -14,7 +14,7 @@
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="site-header" id="siteHeader">
-      <a class="wordmark" href="/" aria-label="Final Take home">final take<span aria-hidden="true">.</span></a>
+      <a class="wordmark" href="/" aria-label="Final Take home"><img src="/wordmark.svg" alt="Final Take" width="677" height="220" /></a>
       <nav class="main-nav" aria-label="Main navigation">
         <a href="/films" data-nav="films">Discover</a>
         <a href="/diary" data-nav="diary">My diary</a>
@@ -24,7 +24,7 @@
     </header>
     <main id="main" tabindex="-1"></main>
     <footer class="site-footer">
-      <div><a class="wordmark" href="/">final take<span>.</span></a><p>For the films that stay with you.</p></div>
+      <div><a class="wordmark" href="/" aria-label="Final Take home"><img src="/wordmark.svg" alt="Final Take" width="677" height="220" /></a><p>For the films that stay with you.</p></div>
       <div class="footer-credit"><a href="https://www.themoviedb.org/" target="_blank" rel="noreferrer" aria-label="The Movie Database"><img src="/tmdb-logo.svg" alt="TMDB" width="90" height="14" /></a><p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p></div>
       <span class="footer-note">A life in films. <span aria-hidden="true">↗</span></span>
     </footer>
@@ -40,13 +40,13 @@
       <form id="profileForm" class="stack-form">
         <label>Your name<input name="name" maxlength="50" required autocomplete="name" /></label>
         <label>A little about you<textarea name="bio" rows="4" maxlength="280" placeholder="Favorite genres, controversial takes, or just a hello."></textarea></label>
-        <p class="form-error" role="alert"></p><button class="button button-dark" type="submit">Save profile <span aria-hidden="true">↗</span></button>
+        <p class="form-error" role="alert"></p><button class="button button-primary" type="submit">Save profile <span aria-hidden="true">↗</span></button>
       </form>
     </dialog>
     <dialog class="modal modal-small" id="confirmDialog" aria-labelledby="confirmTitle">
       <p class="eyebrow">ONE LAST THING</p><h2 id="confirmTitle">Delete this entry?</h2>
       <p>This removes the rating and review from your diary. It cannot be undone.</p>
-      <form method="dialog" class="button-row"><button class="button button-outline" value="cancel">Keep entry</button><button class="button button-rust" value="delete">Delete entry</button></form>
+      <form method="dialog" class="button-row"><button class="button button-outline" value="cancel">Keep entry</button><button class="button button-danger" value="delete">Delete entry</button></form>
     </dialog>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </body>

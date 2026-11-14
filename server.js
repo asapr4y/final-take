@@ -71,11 +71,11 @@ export async function createApp({ databasePath = process.env.SQLITE_PATH || './d
       const method = request.method;
       if (!path.startsWith('/api/')) {
         if (!['GET', 'HEAD'].includes(method)) fail('Method not allowed.', 405);
-        const allowed = { '/app.js': 'app.js', '/styles.css': 'styles.css', '/favicon.svg': 'favicon.svg', '/tmdb-logo.svg': 'tmdb-logo.svg' };
+        const allowed = { '/app.js': 'app.js', '/styles.css': 'styles.css', '/favicon.svg': 'favicon.svg', '/tmdb-logo.svg': 'tmdb-logo.svg', '/wordmark.svg': 'wordmark.svg', '/wordmark-stacked.svg': 'wordmark-stacked.svg', '/cinema-marquee.jpeg': 'cinema-marquee.jpeg', '/cinema-sign.svg': 'cinema-sign.svg', '/city-scene.js': 'city-scene.js' };
         const name = allowed[path] || (!extname(path) || path === '/index.html' ? 'index.html' : null);
         if (!name) fail('Page not found.', 404);
         const file = await readFile(resolve(publicDir, name));
-        const mime = { '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.html': 'text/html' }[extname(name)];
+        const mime = { '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.jpeg': 'image/jpeg', '.html': 'text/html' }[extname(name)];
         response.writeHead(200, { 'Content-Type': `${mime}; charset=utf-8`, 'Cache-Control': 'no-cache' });
         return response.end(method === 'HEAD' ? undefined : file);
       }

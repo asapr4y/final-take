@@ -1,0 +1,9 @@
+{
+  "implementation": "Hand-coded inline SVG, HTML, and CSS. No generated or photographic backdrop.",
+  "source": "public/city-scene.js",
+  "scene": "A centered theater facade between poster towers, with deterministic window grids, neon signs, marquee lamps, canopy, doors, pedestrians, taxis, and street reflections. The palette is ink black, cool white, and restrained signal red.",
+  "branding": "The centered main title is a locally drawn SVG wordmark; the letterboard is a native HTML diary button.",
+  "billboards": "Four accessible links use real catalog movie posters and open the existing film pages. Two prominent billboards flank the title, with two smaller signs farther out. Poster frames, lamps, and reflections are CSS. Hover and keyboard focus illuminate the artwork and reveal an invitation.",
+  "animation": "CSS controls bulb chases, neon brightness, taxis, wheels, walkers, haze, reflections, and the changing letterboard. The pause control and OS reduced-motion preference stop animation.",
+  "responsive": "The theater rearranges into a portrait composition at the mobile breakpoint. The two main poster links appear below the title and diary button at a comfortable touch size; the two secondary signs are hidden."
+}

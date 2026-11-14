@@ -96,6 +96,16 @@ test('starter discovery works without credentials and production assets have sec
   assert.equal((await guest.request('/api/films/999999999')).status, 404);
   const index = await guest.request('/'); assert.equal(index.status, 200); assert.match(index.headers.get('content-security-policy'), /frame-ancestors 'none'/);
   const source = await guest.request('/app.js'); assert.equal(source.status, 200); assert.match(source.headers.get('content-type'), /javascript/);
+  for (const asset of ['/wordmark.svg', '/wordmark-stacked.svg', '/cinema-sign.svg']) {
+    const response = await guest.request(asset);
+    assert.equal(response.status, 200); assert.match(response.headers.get('content-type'), /image\/svg\+xml/);
+    assert.match(response.value, /<svg/);
+  }
+  const marquee = await guest.request('/cinema-marquee.jpeg');
+  assert.equal(marquee.status, 200); assert.match(marquee.headers.get('content-type'), /image\/jpeg/);
+  const city = await guest.request('/city-scene.js');
+  assert.equal(city.status, 200); assert.match(city.headers.get('content-type'), /javascript/);
+  assert.match(city.value, /export function renderCityScene/);
 });
 
 test('diary and login sessions persist after an application restart', async () => {
