@@ -2,37 +2,82 @@
 
 A personal film diary to discover movies, rate and review what you watch, and organize your watchlist.
 
-An editorial film journal in warm paper, charcoal, olive, and rust. This is a standalone application with its own accounts and database.
+An editorial film journal in warm paper, charcoal, olive, and rust. Production accounts, sessions, ratings, reviews, watchlists, and favorites are stored in **Supabase PostgreSQL**. The browser only talks to Final Take's server; database credentials stay server-side.
+
+## Deploy on Vercel with Supabase
+
+1. In your Supabase project, click **Connect** at the top of the dashboard. Under **Connection string**, change **Method** from **Direct connection** to **Transaction pooler**.
+2. Copy the PostgreSQL URL. Replace `[YOUR-PASSWORD]` with the database password you chose when creating the project. URL-encode special characters in that password. Use the host shown in the dashboard rather than guessing it from your region.
+3. In **Vercel > Final Take > Settings > Environment Variables**, save that URL as **`DATABASE_URL`**. Apply it to the deployment environments you use. An integration-provided `POSTGRES_URL` also works. These are server-only variables; do not use a `NEXT_PUBLIC_` or `VITE_` prefix.
+4. Commit and push this code, then redeploy. The included `vercel.json` serves the frontend from `public`, routes API requests to `api/index.js`, and runs `npm run vercel:build`. That build applies pending database migrations before deployment. Node.js is pinned to **24.x**.
+5. If the project previously had custom build/output overrides, reset them to the repository settings. The build command is `npm run vercel:build`, output directory is `public`, and framework preset is **Other**.
+
+Connecting Supabase to a GitHub repo does not by itself give this application a database connection string. A Supabase project URL or anonymous API key cannot be used as `DATABASE_URL`.
+
+`APP_ORIGIN` is optional on Vercel: the app uses Vercel's forwarded host and HTTPS by default. If you set it explicitly, use the exact origin for that environment; a production-only origin should not be applied to a different preview hostname.
+
+## Database migrations
+
+For a local migration, copy `.env.example` to `.env`, add `DATABASE_URL`, and run:
+
+```powershell
+npm install
+npm run db:migrate
+```
+
+The migration is in `supabase/migrations/202611140001_final_take.sql`. It creates the private **`final_take`** schema, tables, indexes, row-level security, and a migration history. Select that schema in Supabase's Table Editor to inspect the tables. They are intentionally outside the default `public` schema.
+
+The migration runner uses transaction-scoped locking and checksums, and can be run repeatedly. It preserves existing rows and only inserts missing starter films. Do not edit a migration after it has been applied; add a new numbered migration instead.
+
+The application retains its existing account system and scrypt password hashes. Accounts live in `final_take.users`, not Supabase Auth. Supabase anonymous and authenticated Data API roles have no direct access to these tables; the server-only PostgreSQL connection handles authorization. The transaction-pooler driver uses TLS, one connection per warm instance, and no prepared statements.
+
+If you need a separate migration connection, set `MIGRATION_DATABASE_URL`; otherwise migrations use `DATABASE_URL`.
+
+## Import an existing SQLite diary
+
+The importer opens the source read-only. It transfers users, film records, diary entries, watchlists, and favorites in a PostgreSQL transaction. IDs and password hashes are preserved. Existing destination rows are not overwritten. Transient sessions are not imported, so users sign in again.
+
+```powershell
+# Inspect counts without changing either database:
+npm run db:import -- --source ./data/final-take.sqlite
+
+# Apply after reviewing the counts:
+npm run db:import -- --source ./data/final-take.sqlite --apply
+```
+
+Keep the original SQLite file as a backup. An account conflict with a different ID stops the import rather than silently replacing an account. If the local database has no personal records, running `db:migrate` is enough.
 
 ## Run locally
 
-Install **Node.js 24 or newer**, then run:
+Install **Node.js 24**, then:
 
 ```powershell
+npm install
 npm start
 ```
 
-Open **http://127.0.0.1:3000**. There are no third-party runtime dependencies to install. Use `npm run dev` for automatic server restarts while editing.
+Open **http://127.0.0.1:3000**. With `DATABASE_URL` in `.env`, local development uses Supabase. Without one, local development alone can use `data/final-take.sqlite`. On Vercel, a hosted connection is required; the app will never create a temporary SQLite database that could lose user data.
 
-Create an account in the app to start your diary. Accounts, sessions, reviews, watchlists, and favorites are stored in `data/final-take.sqlite`, created automatically on the first run. The directory is excluded from Git. No demo users or fabricated reviews are added.
+Use `npm run dev` for automatic restarts. Credentials and local database files are excluded from Git.
 
 ## Included
 
 - Film discovery with title search, genre filters, sorting, and pagination
-- A curated 17-film starter catalog that works without API credentials
-- Optional live TMDB discovery, detail pages, artwork, and director information
-- Individual accounts with salted scrypt password hashes and server-side sessions
+- A curated 17-film starter catalog that works without movie API credentials
+- Optional live TMDB discovery, artwork, and director information
+- Individual accounts with salted scrypt password hashes and persistent server-side sessions
 - Half-star ratings, reviews, watched dates, spoiler labels, and repeat viewings
 - Editing and deleting your own diary entries
 - Personal watchlists and four favorite films per profile
 - Public profiles, biographies, diary statistics, and film reviews
-- Responsive layouts, keyboard-accessible forms, native dialogs, and reduced-motion support
+- Database-backed login throttling across serverless instances
+- Responsive layouts, accessible forms, native dialogs, and reduced-motion support
 
 ## Live movie discovery
 
-Copy `.env.example` to `.env` and add a **TMDB API Read Access Token** as `TMDB_READ_TOKEN`. A legacy `TMDB_API_KEY` also works. Restart the server. The credential stays on the server. When TMDB is unavailable, the starter catalog remains available.
+Add a **TMDB API Read Access Token** as `TMDB_READ_TOKEN` in `.env` or Vercel's server-side environment variables. A legacy `TMDB_API_KEY` also works. The credential stays on the server. If TMDB is unavailable, the starter catalog remains available.
 
-Without a TMDB credential, search is limited to the starter catalog. Movie images require an internet connection; unavailable artwork gets a readable placeholder.
+Without a credential, discovery searches only the starter catalog. Artwork requires an internet connection; unavailable images get a readable placeholder.
 
 ## Checks
 
@@ -41,29 +86,16 @@ npm run check
 npm test
 ```
 
-The integration tests cover real registration and login, cookie sessions, diary CRUD, rewatches, account isolation, CSRF protection, watchlists, favorite limits, input validation, and persistence across server restarts.
+Tests cover SQLite compatibility and PostgreSQL migrations, real registration/login, session cookies, diary CRUD, rewatches, account isolation, numeric rating handling, CSRF, watchlists, concurrent favorite limits, data import, and the Vercel entry point. PostgreSQL tests use PGlite, a development-only PostgreSQL engine, and never touch your cloud database.
 
-## Deployment
+## Self-hosting
 
-Run this app on a **Node.js server with persistent storage**. Set `HOST=0.0.0.0`, `PORT` as required by the host, and `APP_ORIGIN` to the exact public HTTPS origin. `APP_ORIGIN` enables secure session cookies and origin checks. Set `SQLITE_PATH` to a file on the persistent disk.
-
-The included Dockerfile supports a named data volume:
-
-```sh
-docker build -t final-take .
-docker run --name final-take -p 3000:3000 -v final-take-data:/data -e APP_ORIGIN=https://your-domain.example final-take
-```
-
-Put the container behind your HTTPS reverse proxy. For local Docker use, omit `APP_ORIGIN` and visit `http://localhost:3000`.
-
-This SQLite setup targets a single server. Vercel's ephemeral serverless filesystem is not suitable for its database. If deploying there later, move persistence to a hosted database first.
-
-To back up local development data, stop the app and copy the `data` directory. Keep it out of public repositories and retain it across deployments.
+For a regular Node host, set `HOST=0.0.0.0`, `PORT` as needed, and `APP_ORIGIN` to your exact HTTPS origin. Use `DATABASE_URL` for shared Supabase storage. The Dockerfile installs production dependencies and supports both PostgreSQL and the local SQLite development option.
 
 ## MVP scope
 
-The current version includes accounts and the personal diary. Email verification, password recovery, following, notifications, review moderation, and private profiles are future work. Public profiles and published diary entries are visible to visitors. Email addresses and password hashes are never returned in public responses.
+Email verification, password recovery, following, notifications, review moderation, and private profiles are future work. Public profiles and published diary entries are visible to visitors. Email addresses and password hashes are never returned in public responses.
 
 ## Credits
 
-Movie metadata and images are provided by [TMDB](https://www.themoviedb.org/). This product uses the TMDB API but is not endorsed or certified by TMDB. Typography: DM Sans and DM Serif Display via Google Fonts.
+Movie metadata and images: [TMDB](https://www.themoviedb.org/). This product uses the TMDB API but is not endorsed or certified by TMDB. Typography: DM Sans and DM Serif Display via Google Fonts.

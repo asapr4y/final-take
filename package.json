@@ -4,11 +4,22 @@
   "private": true,
   "type": "module",
   "description": "A personal film diary to discover, rate, review, and remember what you watch.",
-  "engines": { "node": ">=24.0.0" },
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "start": "node --env-file-if-exists=.env server.js",
     "dev": "node --watch --env-file-if-exists=.env server.js",
-    "check": "node --check server.js && node --check lib/database.js && node --check lib/auth.js && node --check lib/catalog.js && node --check lib/seed.js && node --check public/app.js",
-    "test": "node --test"
+    "check": "node --check server.js && node --check api/index.js && node --check lib/database.js && node --check lib/sqlite.js && node --check lib/migrations.js && node --check lib/import.js && node --check lib/auth.js && node --check lib/catalog.js && node --check lib/seed.js && node --check scripts/migrate.js && node --check scripts/import-sqlite.js && node --check public/app.js",
+    "test": "node --test",
+    "db:migrate": "node --env-file-if-exists=.env scripts/migrate.js",
+    "db:import": "node --env-file-if-exists=.env scripts/import-sqlite.js",
+    "vercel:build": "npm run check && npm run db:migrate"
+  },
+  "dependencies": {
+    "postgres": "4.1.1"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.16"
   }
 }

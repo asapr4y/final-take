@@ -1,0 +1,27 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "npm run vercel:build",
+  "outputDirectory": "public",
+  "functions": {
+    "api/index.js": { "includeFiles": "public/**", "maxDuration": 30 }
+  },
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api" },
+    { "source": "/films", "destination": "/index.html" },
+    { "source": "/film/:id", "destination": "/index.html" },
+    { "source": "/diary", "destination": "/index.html" },
+    { "source": "/watchlist", "destination": "/index.html" },
+    { "source": "/u/:username", "destination": "/index.html" }
+  ],
+  "headers": [{
+    "source": "/(.*)",
+    "headers": [
+      { "key": "X-Content-Type-Options", "value": "nosniff" },
+      { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+      { "key": "X-Frame-Options", "value": "DENY" },
+      { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()" },
+      { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https://image.tmdb.org https://www.themoviedb.org data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" }
+    ]
+  }]
+}

@@ -1,9 +1,9 @@
 import http from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolve, extname } from 'node:path';
-import { openDatabase, publicUser, userStats, entryRows } from './lib/database.js';
+import { openDatabase, connectionStringFromEnv, publicUser, userStats, entryRows } from './lib/database.js';
 import { hashPassword, verifyPassword, sessionFor, startSession, endSession } from './lib/auth.js';
 import { createCatalog } from './lib/catalog.js';
 
@@ -33,26 +33,32 @@ function entryData(data) {
   return { rating, review, watchedOn, spoilers: data.spoilers ? 1 : 0 };
 }
 
-export function createApp({ databasePath = process.env.SQLITE_PATH || './data/final-take.sqlite', appOrigin = process.env.APP_ORIGIN || '',
-  tmdbToken = process.env.TMDB_READ_TOKEN || '', tmdbKey = process.env.TMDB_API_KEY || '', fetcher } = {}) {
+export async function createApp({ databasePath = process.env.SQLITE_PATH || './data/final-take.sqlite', appOrigin = process.env.APP_ORIGIN || '',
+  tmdbToken = process.env.TMDB_READ_TOKEN || '', tmdbKey = process.env.TMDB_API_KEY || '', fetcher, database, connectionString = connectionStringFromEnv(), hosted = Boolean(process.env.VERCEL) } = {}) {
   if (appOrigin) {
     const configured = new URL(appOrigin);
     if (!['http:', 'https:'].includes(configured.protocol)) throw new Error('APP_ORIGIN must be an HTTP or HTTPS origin.');
     appOrigin = configured.origin;
   }
-  const db = openDatabase(databasePath);
-  const catalog = createCatalog(db, { tmdbToken, tmdbKey, fetcher });
-  const attempts = new Map();
-  function throttle(request, action, limit) {
-    const key = `${action}:${request.socket.remoteAddress}`;
-    const now = Date.now();
-    if (attempts.size > 5000) for (const [k, v] of attempts) if (v.until < now) attempts.delete(k);
-    let value = attempts.get(key);
-    if (!value || value.until < now) value = { count: 0, until: now + 15 * 60000 };
-    value.count++; attempts.set(key, value);
+  const db = database || await openDatabase(databasePath, { connectionString, hosted });
+  let catalog;
+  try { catalog = await createCatalog(db, { tmdbToken, tmdbKey, fetcher }); }
+  catch (error) { if (!database) await db.close(); throw error; }
+  async function throttle(request, action, limit) {
+    const address = process.env.VERCEL
+      ? String(request.headers['x-vercel-forwarded-for'] || request.headers['x-forwarded-for'] || request.socket.remoteAddress).split(',')[0].trim()
+      : request.socket.remoteAddress;
+    const key = createHash('sha256').update(`${action}:${address}`).digest('hex');
+    const now = Date.now(), until = now + 15 * 60000;
+    await db.prepare('DELETE FROM auth_attempts WHERE reset_at < ?').run(now - 15 * 60000);
+    const value = await db.prepare(`INSERT INTO auth_attempts(key, count, reset_at) VALUES (?, 1, ?)
+      ON CONFLICT(key) DO UPDATE SET
+      count = CASE WHEN auth_attempts.reset_at <= ? THEN 1 ELSE auth_attempts.count + 1 END,
+      reset_at = CASE WHEN auth_attempts.reset_at <= ? THEN ? ELSE auth_attempts.reset_at END
+      RETURNING count, reset_at`).get(key, until, now, now, until);
     if (value.count > limit) fail('Too many attempts. Please try again in 15 minutes.', 429);
   }
-  const server = http.createServer(async (request, response) => {
+  const handler = async (request, response) => {
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     response.setHeader('X-Frame-Options', 'DENY');
@@ -73,11 +79,12 @@ export function createApp({ databasePath = process.env.SQLITE_PATH || './data/fi
         response.writeHead(200, { 'Content-Type': `${mime}; charset=utf-8`, 'Cache-Control': 'no-cache' });
         return response.end(method === 'HEAD' ? undefined : file);
       }
-      const session = sessionFor(db, request);
-      const secure = appOrigin.startsWith('https:');
+      const session = await sessionFor(db, request);
+      const secure = appOrigin.startsWith('https:') || Boolean(process.env.VERCEL);
       const requireUser = () => { if (!session) fail('Sign in to keep your film diary.', 401); return session.user; };
       if (!['GET', 'HEAD'].includes(method)) {
-        const expectedOrigin = appOrigin || `http://${request.headers.host}`;
+        const platformHost = process.env.VERCEL ? String(request.headers['x-forwarded-host'] || request.headers.host) : request.headers.host;
+        const expectedOrigin = appOrigin || `${process.env.VERCEL ? 'https' : 'http'}://${platformHost}`;
         if (request.headers.origin !== expectedOrigin) fail('This request is not allowed.', 403);
         if (!['/api/auth/login', '/api/auth/register'].includes(path)) {
           requireUser();
@@ -86,7 +93,7 @@ export function createApp({ databasePath = process.env.SQLITE_PATH || './data/fi
       }
       if (path === '/api/session' && method === 'GET') return send({ user: session?.user || null, csrf: session?.csrf || null });
       if (path === '/api/auth/register' && method === 'POST') {
-        throttle(request, 'register', 8);
+        await throttle(request, 'register', 8);
         const data = await body(request);
         const name = text(data.name, 50, 'Your name', 1);
         const username = text(data.username, 24, 'Username', 3).toLowerCase();
@@ -94,24 +101,24 @@ export function createApp({ databasePath = process.env.SQLITE_PATH || './data/fi
         const email = text(data.email, 254, 'Email', 3).toLowerCase();
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail('Enter a valid email address.');
         if (typeof data.password !== 'string' || data.password.length < 10 || data.password.length > 128) fail('Choose a password with 10–128 characters.');
-        if (db.prepare('SELECT id FROM users WHERE email = ? OR username = ?').get(email, username)) fail('That email or username is already in use.', 409);
+        if (await db.prepare('SELECT id FROM users WHERE email = ? OR username = ?').get(email, username)) fail('That email or username is already in use.', 409);
         const hash = await hashPassword(data.password);
         const user = { id: randomUUID(), username, email, name, password_hash: hash, bio: '', created_at: new Date().toISOString() };
-        try { db.prepare('INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?)').run(user.id, username, email, name, hash, '', user.created_at); }
-        catch (error) { if (error.message.includes('UNIQUE constraint failed')) fail('That email or username is already in use.', 409); throw error; }
-        return send(startSession(db, response, user, secure), 201);
+        try { await db.prepare('INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?)').run(user.id, username, email, name, hash, '', user.created_at); }
+        catch (error) { if (error.code === '23505' || error.message.includes('UNIQUE constraint failed')) fail('That email or username is already in use.', 409); throw error; }
+        return send(await startSession(db, response, user, secure), 201);
       }
       if (path === '/api/auth/login' && method === 'POST') {
-        throttle(request, 'login', 15);
+        await throttle(request, 'login', 15);
         const data = await body(request);
         const identity = text(data.email, 254, 'Email or username', 1).toLowerCase();
         const password = typeof data.password === 'string' && data.password.length <= 128 ? data.password : '';
-        const user = db.prepare('SELECT * FROM users WHERE email = ? OR username = ?').get(identity, identity);
+        const user = await db.prepare('SELECT * FROM users WHERE email = ? OR username = ?').get(identity, identity);
         if (!await verifyPassword(password, user?.password_hash)) fail('The email, username, or password is incorrect.', 401);
-        if (session) endSession(db, response, session, secure);
-        return send(startSession(db, response, user, secure));
+        if (session) await endSession(db, response, session, secure);
+        return send(await startSession(db, response, user, secure));
       }
-      if (path === '/api/auth/logout' && method === 'POST') { endSession(db, response, session, secure); return send({ ok: true }); }
+      if (path === '/api/auth/logout' && method === 'POST') { await endSession(db, response, session, secure); return send({ ok: true }); }
       if (path === '/api/films' && method === 'GET') {
         const query = String(url.searchParams.get('q') || '').trim().slice(0, 100);
         const genre = String(url.searchParams.get('genre') || '').slice(0, 6);
@@ -122,35 +129,35 @@ export function createApp({ databasePath = process.env.SQLITE_PATH || './data/fi
       const filmRoute = path.match(/^\/api\/films\/(\d+)$/);
       if (filmRoute && method === 'GET') {
         const film = await catalog.get(idValue(filmRoute[1])); if (!film) fail('Film not found.', 404);
-        const reviews = entryRows(db, 'e.film_id = ? AND e.review != ?', [film.id, '']);
-        const aggregate = db.prepare('SELECT ROUND(AVG(rating), 1) AS average, COUNT(*) AS count FROM entries WHERE film_id = ?').get(film.id);
+        const reviews = await entryRows(db, 'e.film_id = ? AND e.review != ?', [film.id, '']);
+        const aggregate = await db.prepare('SELECT ROUND(AVG(rating), 1) AS average, COUNT(*) AS count FROM entries WHERE film_id = ?').get(film.id);
         const my = session ? {
-          watchlisted: Boolean(db.prepare('SELECT 1 FROM watchlist WHERE user_id = ? AND film_id = ?').get(session.user.id, film.id)),
-          favorite: Boolean(db.prepare('SELECT 1 FROM favorites WHERE user_id = ? AND film_id = ?').get(session.user.id, film.id)),
-          entries: entryRows(db, 'e.user_id = ? AND e.film_id = ?', [session.user.id, film.id])
+          watchlisted: Boolean(await db.prepare('SELECT 1 FROM watchlist WHERE user_id = ? AND film_id = ?').get(session.user.id, film.id)),
+          favorite: Boolean(await db.prepare('SELECT 1 FROM favorites WHERE user_id = ? AND film_id = ?').get(session.user.id, film.id)),
+          entries: await entryRows(db, 'e.user_id = ? AND e.film_id = ?', [session.user.id, film.id])
         } : null;
         return send({ film, reviews, aggregate, my });
       }
-      if (path === '/api/me/diary' && method === 'GET') return send({ entries: entryRows(db, 'e.user_id = ?', [requireUser().id]) });
+      if (path === '/api/me/diary' && method === 'GET') return send({ entries: await entryRows(db, 'e.user_id = ?', [requireUser().id]) });
       if (path === '/api/me/watchlist' && method === 'GET') {
-        const films = db.prepare('SELECT f.json FROM watchlist w JOIN films f ON f.id = w.film_id WHERE w.user_id = ? ORDER BY w.created_at DESC').all(requireUser().id).map(row => JSON.parse(row.json));
+        const films = (await db.prepare('SELECT f.json FROM watchlist w JOIN films f ON f.id = w.film_id WHERE w.user_id = ? ORDER BY w.created_at DESC').all(requireUser().id)).map(row => JSON.parse(row.json));
         return send({ films });
       }
       if (path === '/api/entries' && method === 'POST') {
         const user = requireUser(); const data = await body(request); const values = entryData(data);
         const film = await catalog.get(idValue(data.filmId)); if (!film) fail('Film not found.', 404);
         const id = randomUUID(), now = new Date().toISOString();
-        db.prepare('INSERT INTO entries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, user.id, film.id, values.rating, values.review, values.watchedOn, values.spoilers, now, now);
+        await db.prepare('INSERT INTO entries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, user.id, film.id, values.rating, values.review, values.watchedOn, values.spoilers, now, now);
         return send({ id }, 201);
       }
       const entryRoute = path.match(/^\/api\/entries\/([a-f0-9-]+)$/);
       if (entryRoute && ['PATCH', 'DELETE'].includes(method)) {
         const user = requireUser();
-        if (!db.prepare('SELECT id FROM entries WHERE id = ? AND user_id = ?').get(entryRoute[1], user.id)) fail('Diary entry not found.', 404);
-        if (method === 'DELETE') db.prepare('DELETE FROM entries WHERE id = ? AND user_id = ?').run(entryRoute[1], user.id);
+        if (!await db.prepare('SELECT id FROM entries WHERE id = ? AND user_id = ?').get(entryRoute[1], user.id)) fail('Diary entry not found.', 404);
+        if (method === 'DELETE') await db.prepare('DELETE FROM entries WHERE id = ? AND user_id = ?').run(entryRoute[1], user.id);
         else {
           const values = entryData(await body(request));
-          db.prepare('UPDATE entries SET rating = ?, review = ?, watched_on = ?, spoilers = ?, updated_at = ? WHERE id = ? AND user_id = ?')
+          await db.prepare('UPDATE entries SET rating = ?, review = ?, watched_on = ?, spoilers = ?, updated_at = ? WHERE id = ? AND user_id = ?')
             .run(values.rating, values.review, values.watchedOn, values.spoilers, new Date().toISOString(), entryRoute[1], user.id);
         }
         return send({ ok: true });
@@ -158,24 +165,28 @@ export function createApp({ databasePath = process.env.SQLITE_PATH || './data/fi
       const collection = path.match(/^\/api\/(watchlist|favorites)\/(\d+)$/);
       if (collection && ['PUT', 'DELETE'].includes(method)) {
         const user = requireUser(), id = idValue(collection[2]), table = collection[1];
-        if (method === 'DELETE') db.prepare(`DELETE FROM ${table} WHERE user_id = ? AND film_id = ?`).run(user.id, id);
+        if (method === 'DELETE') await db.prepare(`DELETE FROM ${table} WHERE user_id = ? AND film_id = ?`).run(user.id, id);
         else {
           const film = await catalog.get(id); if (!film) fail('Film not found.', 404);
-          if (table === 'favorites' && !db.prepare('SELECT 1 FROM favorites WHERE user_id = ? AND film_id = ?').get(user.id, id) && db.prepare('SELECT COUNT(*) AS n FROM favorites WHERE user_id = ?').get(user.id).n >= 4) fail('Your four favorites are full. Remove one to make room.');
-          db.prepare(`INSERT OR IGNORE INTO ${table} VALUES (?, ?, ?)`).run(user.id, id, new Date().toISOString());
+          await db.transaction(async tx => {
+            await tx.lockUser(user.id);
+            if (table === 'favorites' && !await tx.prepare('SELECT 1 FROM favorites WHERE user_id = ? AND film_id = ?').get(user.id, id) &&
+                (await tx.prepare('SELECT COUNT(*) AS n FROM favorites WHERE user_id = ?').get(user.id)).n >= 4) fail('Your four favorites are full. Remove one to make room.');
+            await tx.prepare(`INSERT INTO ${table} VALUES (?, ?, ?) ON CONFLICT(user_id, film_id) DO NOTHING`).run(user.id, id, new Date().toISOString());
+          });
         }
         return send({ ok: true });
       }
       if (path === '/api/me/profile' && method === 'PATCH') {
         const user = requireUser(), data = await body(request);
-        db.prepare('UPDATE users SET name = ?, bio = ? WHERE id = ?').run(text(data.name, 50, 'Your name', 1), text(data.bio ?? '', 280, 'Your bio'), user.id);
-        return send({ user: publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(user.id)) });
+        await db.prepare('UPDATE users SET name = ?, bio = ? WHERE id = ?').run(text(data.name, 50, 'Your name', 1), text(data.bio ?? '', 280, 'Your bio'), user.id);
+        return send({ user: publicUser(await db.prepare('SELECT * FROM users WHERE id = ?').get(user.id)) });
       }
       const profileRoute = path.match(/^\/api\/members\/([a-zA-Z0-9_]+)$/);
       if (profileRoute && method === 'GET') {
-        const user = db.prepare('SELECT * FROM users WHERE username = ?').get(profileRoute[1]); if (!user) fail('This profile could not be found.', 404);
-        const favorites = db.prepare('SELECT f.json FROM favorites x JOIN films f ON f.id = x.film_id WHERE x.user_id = ? ORDER BY x.created_at').all(user.id).map(row => JSON.parse(row.json));
-        return send({ user: publicUser(user), stats: userStats(db, user.id), favorites, entries: entryRows(db, 'e.user_id = ?', [user.id]) });
+        const user = await db.prepare('SELECT * FROM users WHERE username = ?').get(profileRoute[1]); if (!user) fail('This profile could not be found.', 404);
+        const favorites = (await db.prepare('SELECT f.json FROM favorites x JOIN films f ON f.id = x.film_id WHERE x.user_id = ? ORDER BY x.created_at').all(user.id)).map(row => JSON.parse(row.json));
+        return send({ user: publicUser(user), stats: await userStats(db, user.id), favorites, entries: await entryRows(db, 'e.user_id = ?', [user.id]) });
       }
       fail('This page could not be found.', 404);
     } catch (error) {
@@ -184,12 +195,14 @@ export function createApp({ databasePath = process.env.SQLITE_PATH || './data/fi
       if (!response.headersSent) send({ error: status === 500 ? 'Something went wrong. Please try again.' : error.message }, status);
       else response.end();
     }
-  });
-  return { server, db, close: () => new Promise(resolve => server.close(() => { db.close(); resolve(); })) };
+  };
+  const server = http.createServer(handler);
+  let closing = false;
+  return { handler, server, db, async close() { if (closing) return; closing = true; if (server.listening) await new Promise(resolve => server.close(resolve)); await db.close(); } };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const app = createApp();
+  const app = await createApp();
   const port = Number(process.env.PORT) || 3000, host = process.env.HOST || '127.0.0.1';
   app.server.listen(port, host, () => console.log(`Final Take is running at http://${host}:${port}`));
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => app.close().then(() => process.exit(0)));

@@ -7,7 +7,7 @@ import { existsSync, unlinkSync } from 'node:fs';
 import { createApp } from '../server.js';
 
 async function start(databasePath = ':memory:') {
-  const app = createApp({ databasePath, tmdbToken: '', tmdbKey: '' });
+  const app = await createApp({ databasePath, tmdbToken: '', tmdbKey: '', connectionString: '', hosted: false });
   await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
   const origin = `http://127.0.0.1:${app.server.address().port}`;
   const client = () => {
@@ -115,7 +115,7 @@ test('diary and login sessions persist after an application restart', async () =
 
 test('live discovery keeps the token server-side, honors genre filters, and caches complete film details', async t => {
   const calls = [];
-  const app = createApp({ databasePath: ':memory:', tmdbToken: 'server-only-test-token', fetcher: async (url, options) => {
+  const app = await createApp({ databasePath: ':memory:', connectionString: '', hosted: false, tmdbToken: 'server-only-test-token', fetcher: async (url, options) => {
     calls.push({ url: new URL(url), authorization: options.headers.Authorization });
     const film = { id: 900001, title: 'A New Discovery', release_date: '2025-05-01', poster_path: '/test-poster.jpg', genre_ids: [18],
       genres: [{ id: 18, name: 'Drama' }], runtime: 110, overview: 'A film for the test.',
