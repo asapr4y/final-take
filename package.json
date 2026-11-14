@@ -1,0 +1,14 @@
+{
+  "name": "final-take",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A personal film diary to discover, rate, review, and remember what you watch.",
+  "engines": { "node": ">=24.0.0" },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.js",
+    "dev": "node --watch --env-file-if-exists=.env server.js",
+    "check": "node --check server.js && node --check lib/database.js && node --check lib/auth.js && node --check lib/catalog.js && node --check lib/seed.js && node --check public/app.js",
+    "test": "node --test"
+  }
+}
