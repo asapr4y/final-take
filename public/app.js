@@ -72,7 +72,7 @@ function homeView(films) {
       <div class="city-billboard"><h1 class="city-title"><span>FOR THE FILMS</span> <span>THAT STAY</span> <span>WITH YOU</span></h1></div>
       <button class="city-letterboard" type="button" ${state.user ? 'data-go-diary' : 'data-auth="register"'} aria-label="${state.user ? 'Open your diary' : 'Start your diary'}"><span class="marquee-copy-window" aria-hidden="true"><span class="marquee-copy-track"><span>YOUR LIFE IN FILMS</span><span>MAKE YOUR FINAL TAKE</span><span>YOUR LIFE IN FILMS</span></span></span><span class="marquee-action">${state.user ? 'OPEN YOUR DIARY' : 'START YOUR DIARY'} <span aria-hidden="true">&nearr;</span></span></button>
       <nav class="city-poster-district" aria-label="Films on the billboards">${billboards.map(billboard).join('')}</nav>
-      <div class="city-neon-halo" aria-hidden="true"></div><div class="city-haze" aria-hidden="true"></div><div class="city-reflections" aria-hidden="true"></div><div class="city-light-runner" aria-hidden="true"></div>
+      <div class="city-neon-halo" aria-hidden="true"></div><div class="city-haze" aria-hidden="true"></div><div class="city-reflections" aria-hidden="true"></div>
       <p class="city-scene-note"><span aria-hidden="true">&darr;</span> PICK A POSTER. FIND YOUR NEXT GREAT FILM.</p>
     </div>
     <div class="city-dock page-width"><div><p class="eyebrow">A PERSONAL FILM JOURNAL</p><h2>Your own little corner of cinema.</h2><p>Rate, review, and remember the films that stay with you.</p></div><a class="city-explore" href="/films">Find your next film ${arrow}</a></div>

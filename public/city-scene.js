@@ -104,8 +104,10 @@ export function renderCityScene() {
   </g>
   <g class="scene-sidewalk"><path d="M0 829h1774v53H0Z" fill="#343940"/><path d="M0 837h1774m-1694 0v43m140-43v43m140-43v43m140-43v43m140-43v43m140-43v43m140-43v43m140-43v43m140-43v43m140-43v43m140-43v43m140-43v43m140-43v43" stroke="#59616b" stroke-width="1" opacity=".3"/><path d="M0 882h1774" stroke="#9b9da1" stroke-width="3"/><path d="M0 888h1774" stroke="#080d14" stroke-width="8"/></g>
   <g class="scene-people">${crowd}${person(159, 835, 1.3, '#292b32')}${person(1565, 833, 1.3, '#504239')}<g class="scene-walker">${person(1358, 846, 1.5, '#6e503c')}${person(1400, 841, 1.3, '#292c34')}</g></g>
-  <!-- Pedestrian feet remain above y=882; both taxi bodies stay below y=900. -->
-  <g class="scene-traffic"><g transform="translate(1670 909) scale(.88)"><g class="scene-cab-motion">${taxi()}</g></g><g transform="translate(1730 900) scale(.58)"><g class="scene-cab-motion scene-cab-far">${taxi()}</g></g></g>
+  <!-- One moving group keeps a fixed 800-unit headway. The entire convoy is
+       offscreen at both ends of its loop; cars never fade or reset in view.
+       Both cabs occupy the same road lane, below the sidewalk at y=882. -->
+  <g class="scene-traffic"><g class="scene-cab-motion"><g class="scene-cab" transform="translate(0 914) scale(.82)">${taxi()}</g><g class="scene-cab" transform="translate(800 914) scale(.82)">${taxi()}</g></g></g>
   </svg>`;
 }
 
