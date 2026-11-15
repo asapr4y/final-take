@@ -47,8 +47,10 @@ test('diary CRUD, rewatches, public reviews, and account isolation', async t => 
   const app = await start(); t.after(app.close); const alice = app.client(), bob = app.client();
   await alice.request('/api/auth/register', 'POST', registration('alice')); await bob.request('/api/auth/register', 'POST', registration('bob'));
   const first = await alice.request('/api/entries', 'POST', viewing()); assert.equal(first.status, 201);
+  assert.equal(first.value.firstEntry, true); assert.equal(first.value.rewatch, false);
   const second = await alice.request('/api/entries', 'POST', viewing({ watchedOn: '2026-02-20', rating: 5, review: 'Even better the second time. ♥' }));
   assert.equal(second.status, 201); assert.equal((await alice.request('/api/me/diary')).value.entries.length, 2);
+  assert.equal(second.value.firstEntry, false); assert.equal(second.value.rewatch, true);
   assert.equal((await bob.request('/api/me/diary')).value.entries.length, 0);
   assert.equal((await bob.request(`/api/entries/${first.value.id}`, 'DELETE')).status, 404);
   assert.equal((await bob.request(`/api/entries/${first.value.id}`, 'PATCH', viewing())).status, 404);

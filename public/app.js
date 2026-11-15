@@ -33,7 +33,31 @@ async function api(path, { method = 'GET', data, signal } = {}) {
   }
   return result;
 }
-function toast(message) { const node = $('#toast'); node.textContent = message; node.classList.add('visible'); clearTimeout(toast.timer); toast.timer = setTimeout(() => node.classList.remove('visible'), 3500); }
+const actionQuotes = {
+  register: { line: 'This is where the fun begins.', film: 'Star Wars: Revenge of the Sith', year: 2005 },
+  login: { line: 'Welcome to the party, pal!', film: 'Die Hard', year: 1988 },
+  firstEntry: { line: 'This is the beginning of a beautiful friendship.', film: 'Casablanca', year: 1942 },
+  watchlist: { line: 'You had me at hello.', film: 'Jerry Maguire', year: 1996 },
+  favorite: { line: 'Here’s looking at you, kid.', film: 'Casablanca', year: 1942 },
+  rewatch: { line: 'Chewie, we’re home.', film: 'Star Wars: The Force Awakens', year: 2015 },
+  fiveStars: { line: 'You complete me.', film: 'Jerry Maguire', year: 1996 },
+  deleteEntry: { line: 'Hasta la vista, baby.', film: 'Terminator 2: Judgment Day', year: 1991 },
+  logout: { line: 'I’ll be back.', film: 'The Terminator', year: 1984 }
+};
+function toast(message, quote = null) {
+  const node = $('#toast');
+  node.classList.toggle('has-quote', Boolean(quote));
+  if (quote) node.innerHTML = `<span class="toast-quote">“${escape(quote.line)}”</span><span class="toast-message">${escape(message)}</span><span class="toast-credit">${escape(quote.film)} · ${quote.year}</span>`;
+  else node.textContent = message;
+  node.classList.add('visible'); clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => node.classList.remove('visible'), quote ? 7000 : 4500);
+}
+function actionToast(action, message) {
+  const now = Date.now(), last = actionToast.last;
+  const repeated = last?.action === action && now - last.at < 6000;
+  actionToast.last = { action, at: now };
+  toast(message, repeated ? null : actionQuotes[action]);
+}
 function renderAccount() {
   $('#headerAccount').innerHTML = state.user
     ? `<details class="account-menu"><summary><span class="avatar avatar-small">${initials(state.user.name)}</span><span class="account-name">${escape(state.user.name)}</span><span class="menu-chevron">⌄</span></summary><div class="account-dropdown"><a href="/u/${state.user.username}">Your profile ${arrow}</a><button data-edit-profile>Edit profile</button><button data-logout>Sign out</button></div></details>`
@@ -170,7 +194,7 @@ function filmView(detail, params) {
   const { film, my, aggregate, reviews, nextCursor } = detail;
   const editing = my?.entries.find(e => e.id === params.get('edit')) || null;
   const runtime = film.runtime ? `${Math.floor(film.runtime / 60)}h ${film.runtime % 60}m` : '';
-  return `<section class="film-masthead ${film.backdrop ? '' : 'no-backdrop'}">${film.backdrop ? `<img class="film-backdrop" src="${escape(film.backdrop)}" alt="" />` : ''}<div class="page-width film-masthead-inner"><a class="back-link" href="/films">← Back to discoveries</a><p class="eyebrow">${escape(film.genres.slice(0, 3).join(' / '))}</p><h1>${escape(film.title)}</h1><p class="film-byline">${escape(film.year)}${runtime ? ` <span>·</span> ${runtime}` : ''}${film.director ? ` <span>·</span> Directed by <strong>${escape(film.director)}</strong>` : ''}</p></div></section>
+  return `<section class="film-masthead ${film.backdrop ? '' : 'no-backdrop'}">${film.backdrop ? `<img class="film-backdrop" src="${escape(film.backdrop)}" alt="" />` : ''}<div class="page-width film-masthead-inner"><a class="back-link" href="/films">← Back to discoveries</a><p class="eyebrow">${escape(film.genres.slice(0, 3).join(' / '))}</p><h1>${film.logo ? `<img class="film-title-art" data-title-art src="${escape(film.logo)}" alt="${escape(film.title)}" fetchpriority="high" decoding="async" />` : escape(film.title)}</h1><p class="film-byline">${escape(film.year)}${runtime ? ` <span>·</span> ${runtime}` : ''}${film.director ? ` <span>·</span> Directed by <strong>${escape(film.director)}</strong>` : ''}</p></div></section>
     <div class="page-width film-layout"><aside class="film-poster-column"><img class="detail-poster" src="${escape(film.poster || placeholder(film.title))}" alt="${escape(film.title)} poster" width="500" height="750" /><div class="film-collection-actions"><button class="button button-outline ${my?.watchlisted ? 'is-saved' : ''}" data-toggle-watchlist="${film.id}" data-saved="${Boolean(my?.watchlisted)}">${my?.watchlisted ? checkIcon : bookmark}${my?.watchlisted ? 'In your watchlist' : 'Add to watchlist'}</button><button class="text-button favorite-action" data-toggle-favorite="${film.id}" data-saved="${Boolean(my?.favorite)}">${my?.favorite ? '♥ In your four favorites' : '♡ Make it a favorite'}</button></div></aside>
     <div class="film-story"><p class="eyebrow">THE STORY</p>${film.tagline ? `<h2 class="tagline">${escape(film.tagline)}</h2>` : ''}<p class="film-overview">${escape(film.overview)}</p><div class="film-facts"><div><span>RELEASED</span><strong>${escape(film.year || 'Not announced')}</strong></div><div><span>GENRES</span><strong>${escape(film.genres.join(', ') || 'Unlisted')}</strong></div>${film.director ? `<div><span>DIRECTOR</span><strong>${escape(film.director)}</strong></div>` : ''}</div>
     <section class="reviews-section"><div class="section-heading"><div><p class="eyebrow">EVERY FILM STARTS A CONVERSATION</p><h2>The takes.</h2></div><span class="review-count">${aggregate.reviews} ${aggregate.reviews === 1 ? 'review' : 'reviews'}</span></div>${aggregate.count ? `<div class="community-rating">${stars(aggregate.average)}<strong>${aggregate.average}/5</strong><span>from ${aggregate.count} ${aggregate.count === 1 ? 'viewing' : 'viewings'}</span></div>` : ''}${reviews.length ? reviews.map(entry => reviewCard(entry, entry.userId === state.user?.id)).join('') : '<div class="review-empty"><span aria-hidden="true">“</span><p>No reviews yet.<br>There’s room here for your perspective.</p></div>'}${collectionPager(nextCursor, `/film/${film.id}`, 'Older reviews')}</section></div>
@@ -217,7 +241,8 @@ function openAuth(mode = 'register', after = null) { state.afterAuth = after; st
 function requireAccount(action) { if (state.user) return action(); openAuth('register', action); }
 async function toggleCollection(type, id, saved) {
   await api(`/api/${type}/${id}`, { method: saved ? 'DELETE' : 'PUT' });
-  toast(type === 'favorites' ? saved ? 'A frame opened in your favorites.' : 'Added to your four favorites.' : saved ? 'Removed from your watchlist.' : 'Saved for a good evening.');
+  if (saved) toast(type === 'favorites' ? 'A frame opened in your favorites.' : 'Removed from your watchlist.');
+  else actionToast(type === 'favorites' ? 'favorite' : 'watchlist', type === 'favorites' ? 'Added to your four favorites.' : 'Added to your watchlist.');
   if (location.pathname === `/film/${id}` || location.pathname === '/watchlist') await renderRoute();
 }
 async function confirmDelete() { const dialog = $('#confirmDialog'); dialog.returnValue = ''; dialog.showModal(); return new Promise(resolve => dialog.addEventListener('close', () => resolve(dialog.returnValue === 'delete'), { once: true })); }
@@ -249,11 +274,11 @@ document.addEventListener('click', async event => {
     if (target.hasAttribute('data-retry')) return renderRoute();
     if (target.hasAttribute('data-go-diary')) return navigate('/diary');
     if (target.hasAttribute('data-edit-profile')) return openProfileEditor();
-    if (target.hasAttribute('data-logout')) { await api('/api/auth/logout', { method: 'POST' }); state.user = null; state.csrf = null; renderAccount(); toast('Until the next film.'); return navigate('/'); }
+    if (target.hasAttribute('data-logout')) { await api('/api/auth/logout', { method: 'POST' }); state.user = null; state.csrf = null; renderAccount(); actionToast('logout', 'Signed out. Your diary will be right here.'); return navigate('/'); }
     if (target.dataset.quickWatchlist) return requireAccount(async () => { try { target.disabled = true; await toggleCollection('watchlist', target.dataset.quickWatchlist, false); target.innerHTML = checkIcon; target.setAttribute('aria-label', 'Saved to watchlist'); } catch (error) { toast(error.message); } finally { target.disabled = false; } });
     if (target.dataset.removeWatchlist) { target.disabled = true; return await toggleCollection('watchlist', target.dataset.removeWatchlist, true); }
     if (target.dataset.toggleWatchlist || target.dataset.toggleFavorite) { const type = target.dataset.toggleWatchlist ? 'watchlist' : 'favorites', id = target.dataset.toggleWatchlist || target.dataset.toggleFavorite; return requireAccount(async () => { try { target.disabled = true; await toggleCollection(type, id, target.dataset.saved === 'true'); } catch (error) { toast(error.message); } finally { target.disabled = false; } }); }
-    if (target.dataset.deleteEntry) { if (!await confirmDelete()) return; target.disabled = true; await api(`/api/entries/${target.dataset.deleteEntry}`, { method: 'DELETE' }); toast('Entry removed from your diary.'); return renderRoute(); }
+    if (target.dataset.deleteEntry) { if (!await confirmDelete()) return; target.disabled = true; await api(`/api/entries/${target.dataset.deleteEntry}`, { method: 'DELETE' }); actionToast('deleteEntry', 'Entry removed from your diary.'); return renderRoute(); }
     if (target.hasAttribute('data-load-more')) {
       const route = state.route, label = target.textContent;
       target.disabled = true; target.textContent = 'Finding a few more…';
@@ -281,13 +306,33 @@ document.addEventListener('submit', async event => {
   event.preventDefault(); const button = $('button[type="submit"]', form), errorNode = $('.form-error', form), data = Object.fromEntries(new FormData(form));
   button.disabled = true; errorNode.textContent = '';
   try {
-    if (form.id === 'authForm') { const result = await api(`/api/auth/${state.authMode === 'register' ? 'register' : 'login'}`, { method: 'POST', data }); state.user = result.user; state.csrf = result.csrf; $('#authDialog').close(); renderAccount(); toast(state.authMode === 'register' ? 'Your next chapter starts here.' : 'Welcome back.'); const after = state.afterAuth; state.afterAuth = null; await renderRoute(); if (after) await after(); }
-    if (form.id === 'entryForm') { data.filmId = Number(form.dataset.film); data.rating = Number(data.rating); data.spoilers = data.spoilers === 'on'; await api(form.dataset.entry ? `/api/entries/${form.dataset.entry}` : '/api/entries', { method: form.dataset.entry ? 'PATCH' : 'POST', data }); toast(form.dataset.entry ? 'Your take, refined.' : 'Another film, kept with you.'); navigate(`/film/${form.dataset.film}`, true); }
+    if (form.id === 'authForm') {
+      const register = state.authMode === 'register';
+      const result = await api(`/api/auth/${register ? 'register' : 'login'}`, { method: 'POST', data });
+      state.user = result.user; state.csrf = result.csrf; $('#authDialog').close(); renderAccount();
+      actionToast(register ? 'register' : 'login', register ? 'Account created. Let’s find your next favorite film.' : 'Signed in. Welcome back.');
+      const after = state.afterAuth; state.afterAuth = null; await renderRoute(); if (after) await after();
+    }
+    if (form.id === 'entryForm') {
+      data.filmId = Number(form.dataset.film); data.rating = Number(data.rating); data.spoilers = data.spoilers === 'on';
+      const editing = Boolean(form.dataset.entry);
+      const previousRating = state.detail?.my?.entries.find(entry => entry.id === form.dataset.entry)?.rating;
+      const result = await api(editing ? `/api/entries/${form.dataset.entry}` : '/api/entries', { method: editing ? 'PATCH' : 'POST', data });
+      if (!editing && result.firstEntry) actionToast('firstEntry', 'Your first diary entry is saved.');
+      else if (!editing && result.rewatch) actionToast('rewatch', 'Rewatch logged in your diary.');
+      else if (data.rating === 5 && (!editing || previousRating !== 5)) actionToast('fiveStars', 'Five-star rating saved.');
+      else toast(editing ? 'Your take, refined.' : 'Another film, kept with you.');
+      navigate(`/film/${form.dataset.film}`, true);
+    }
     if (form.id === 'profileForm') { const result = await api('/api/me/profile', { method: 'PATCH', data }); state.user = result.user; renderAccount(); $('#profileDialog').close(); toast('Feels more like you.'); if (location.pathname.startsWith('/u/')) await renderRoute(); }
   } catch (error) { errorNode.textContent = error.message; }
   finally { button.disabled = false; }
 });
-document.addEventListener('error', event => { if (event.target.hasAttribute?.('data-hero-art')) { event.target.remove(); return; } if (event.target.tagName === 'IMG' && !event.target.dataset.fallback) { event.target.dataset.fallback = 'true'; event.target.src = placeholder(event.target.alt.replace(/ poster$/, '') || 'A film to discover'); } }, true);
+document.addEventListener('error', event => {
+  if (event.target.hasAttribute?.('data-title-art')) { const heading = event.target.closest('h1'); if (heading) heading.textContent = event.target.alt; return; }
+  if (event.target.hasAttribute?.('data-hero-art')) { event.target.remove(); return; }
+  if (event.target.tagName === 'IMG' && !event.target.dataset.fallback) { event.target.dataset.fallback = 'true'; event.target.src = placeholder(event.target.alt.replace(/ poster$/, '') || 'A film to discover'); }
+}, true);
 for (const dialog of $$('dialog')) {
   dialog.addEventListener('click', event => { if (event.target === dialog) { const r = dialog.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) dialog.close(); } });
   dialog.addEventListener('close', () => { if (dialog.id === 'authDialog') state.lastFocus?.isConnected && state.lastFocus.focus(); });

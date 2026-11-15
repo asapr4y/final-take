@@ -171,6 +171,7 @@ main { min-height: calc(100svh - 270px); }
 .back-link { display: inline-flex; min-height: 44px; align-items: center; font-size: 12px; color: var(--text); }
 .film-masthead .eyebrow { color: var(--accent); margin-top: 70px; margin-bottom: 14px; }
 .film-masthead h1 { font-weight: 500; font-size: clamp(42px, 5vw, 72px); line-height: 1.06; letter-spacing: -2px; max-width: 1000px; margin: 0 0 20px; overflow-wrap: anywhere; }
+.film-title-art { display: block; width: min(500px, 100%); height: clamp(100px, 14vw, 160px); object-fit: contain; object-position: left center; filter: drop-shadow(0 2px 12px #000a); }
 .film-byline { font-size: 13px; color: var(--text); line-height: 1.8; margin: 0; max-width: 850px; }
 .film-byline > span { padding-inline: 9px; color: var(--accent); }
 .film-byline strong { font-weight: 500; }
@@ -294,6 +295,10 @@ main { min-height: calc(100svh - 270px); }
 .button-danger:hover { background: #951919; }
 .toast { position: fixed; z-index: 100; bottom: 25px; left: 50%; max-width: calc(100% - 32px); transform: translate(-50%, 15px); opacity: 0; visibility: hidden; background: var(--surface-raised); color: var(--text); box-shadow: 0 6px 30px #00000022; border: 1px solid var(--line); padding: 14px 22px; border-radius: 3px; font-size: 13px; line-height: 1.7; text-align: center; transition: opacity .2s, transform .2s, visibility .2s; }
 .toast.visible { transform: translate(-50%, 0); opacity: 1; visibility: visible; }
+.toast.has-quote { width: min(440px, calc(100% - 32px)); padding: 18px 22px; text-align: left; border-left: 3px solid var(--accent); }
+.toast-quote { display: block; font-size: 18px; font-weight: 550; line-height: 1.4; margin-bottom: 7px; text-wrap: pretty; }
+.toast-message { display: block; font-size: 13px; }
+.toast-credit { display: block; margin-top: 9px; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .loading-page { padding-block: 80px; }
 .skeleton { background: linear-gradient(100deg, var(--surface) 20%, var(--surface-raised) 45%, var(--surface) 70%); background-size: 250%; animation: shimmer 1.5s infinite; border-radius: 3px; }
 .skeleton-title { height: 60px; max-width: 420px; margin-bottom: 40px; }

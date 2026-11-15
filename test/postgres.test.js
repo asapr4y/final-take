@@ -74,6 +74,7 @@ test('Supabase PostgreSQL path supports accounts, numeric ratings, diary CRUD, p
   assert.equal((await alice('/api/auth/register', 'POST', userData('Alice'))).status, 201);
   assert.equal((await bob('/api/auth/register', 'POST', userData('Bob'))).status, 201);
   const saved = await alice('/api/entries', 'POST', entry); assert.equal(saved.status, 201);
+  assert.equal(saved.value.firstEntry, true); assert.equal(saved.value.rewatch, false);
   const diary = await alice('/api/me/diary'); assert.equal(diary.value.entries[0].rating, 4.5);
   assert.equal((await bob(`/api/entries/${saved.value.id}`, 'DELETE')).status, 404);
   await alice('/api/watchlist/693134', 'PUT'); assert.equal((await alice('/api/me/watchlist')).value.films.length, 1);
@@ -85,6 +86,12 @@ test('Supabase PostgreSQL path supports accounts, numeric ratings, diary CRUD, p
   await alice(`/api/entries/${saved.value.id}`, 'PATCH', { ...entry, rating: 3.5, review: 'An edited take.' });
   const detail = (await bob('/api/films/693134')).value; assert.equal(detail.aggregate.average, 3.5); assert.equal(detail.aggregate.count, 1);
   await alice(`/api/entries/${saved.value.id}`, 'DELETE'); assert.equal((await alice('/api/me/diary')).value.entries.length, 0);
+  const simultaneous = await Promise.all([alice('/api/entries', 'POST', entry), alice('/api/entries', 'POST', entry)]);
+  assert.ok(simultaneous.every(result => result.status === 201));
+  assert.equal(simultaneous.filter(result => result.value.firstEntry).length, 1, 'concurrent saves announce only one first diary entry');
+  assert.equal(simultaneous.filter(result => result.value.rewatch).length, 1, 'the subsequent save is a rewatch');
+  const bobFirst = await bob('/api/entries', 'POST', entry);
+  assert.equal(bobFirst.value.firstEntry, true); assert.equal(bobFirst.value.rewatch, false, 'milestones are personal');
 });
 
 test('SQLite import keeps account hashes and identifiers, and repeated imports do not duplicate diary data', async t => {

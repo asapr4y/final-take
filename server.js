@@ -189,8 +189,15 @@ export async function createApp({ databasePath = process.env.SQLITE_PATH || './d
         const user = requireUser(); const data = await body(request); const values = entryData(data);
         const film = await catalog.get(idValue(data.filmId)); if (!film) fail('Film not found.', 404);
         const id = randomUUID(), now = new Date().toISOString();
-        await db.prepare('INSERT INTO entries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, user.id, film.id, values.rating, values.review, values.watchedOn, values.spoilers, now, now);
-        return send({ id }, 201);
+        const milestone = await db.transaction(async tx => {
+          await tx.lockUser(user.id);
+          const existing = await tx.prepare(`SELECT
+            EXISTS(SELECT 1 FROM entries WHERE user_id = ?) AS has_entries,
+            EXISTS(SELECT 1 FROM entries WHERE user_id = ? AND film_id = ?) AS has_film`).get(user.id, user.id, film.id);
+          await tx.prepare('INSERT INTO entries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, user.id, film.id, values.rating, values.review, values.watchedOn, values.spoilers, now, now);
+          return { firstEntry: !Boolean(existing.has_entries), rewatch: Boolean(existing.has_film) };
+        });
+        return send({ id, ...milestone }, 201);
       }
       const entryRoute = path.match(/^\/api\/entries\/([a-f0-9-]+)$/);
       if (entryRoute && ['PATCH', 'DELETE'].includes(method)) {
