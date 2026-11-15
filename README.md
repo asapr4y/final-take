@@ -16,6 +16,8 @@ Connecting Supabase to a GitHub repo does not by itself give this application a 
 
 `APP_ORIGIN` is optional on Vercel: the app uses Vercel's forwarded host and HTTPS by default. If you set it explicitly, use the exact origin for that environment; a production-only origin should not be applied to a different preview hostname.
 
+Functions are pinned to Seoul (`icn1`) to match the current Supabase database in `ap-northeast-2`. If you use a database in another region, update `regions` in `vercel.json` before deploying.
+
 ## Database migrations
 
 For a local migration, copy `.env.example` to `.env`, add `DATABASE_URL`, and run:
@@ -29,7 +31,9 @@ The migration is in `supabase/migrations/202611140001_final_take.sql`. It create
 
 The migration runner uses transaction-scoped locking and checksums, and can be run repeatedly. It preserves existing rows and only inserts missing starter films. Do not edit a migration after it has been applied; add a new numbered migration instead.
 
-The application retains its existing account system and scrypt password hashes. Accounts live in `final_take.users`, not Supabase Auth. Supabase anonymous and authenticated Data API roles have no direct access to these tables; the server-only PostgreSQL connection handles authorization. The transaction-pooler driver uses TLS, one connection per warm instance, and no prepared statements.
+The application retains its existing account system and scrypt password hashes. Accounts live in `final_take.users`, not Supabase Auth. Supabase anonymous and authenticated Data API roles have no direct access to these tables; the server-only PostgreSQL connection handles authorization. The transaction-pooler driver uses TLS, up to two connections per warm instance, and no prepared statements. `DATABASE_POOL_SIZE` accepts 1–10; keep it small and account for the total across all server instances when sizing the pooler.
+
+`202611150001_performance.sql` adds cursor-pagination indexes, authentication cleanup indexes, and a private shared discovery cache. It preserves existing data and the original migration. Deploy through the normal build command so this migration runs before the new API serves traffic.
 
 If you need a separate migration connection, set `MIGRATION_DATABASE_URL`; otherwise migrations use `DATABASE_URL`.
 
@@ -77,7 +81,7 @@ Use `npm run dev` for automatic restarts. Credentials and local database files a
 
 Add a **TMDB API Read Access Token** as `TMDB_READ_TOKEN` in `.env` or Vercel's server-side environment variables. A legacy `TMDB_API_KEY` also works. The credential stays on the server. If TMDB is unavailable, the starter catalog remains available.
 
-Discovery batches film persistence into at most two database operations per page. Each warm server instance caches up to 100 query/genre/sort/page combinations for five minutes and shares concurrent requests. Successful public discovery responses also allow Vercel CDN caching for five minutes with background revalidation. Sessions, individual film responses (which include personal collection status), and diary endpoints remain `no-store`. Upstream requests time out after four seconds; failures trigger a 30-second cooldown and reuse a good cached page for up to an hour before falling back to the starter catalog. Complete film details retain their own one-day expiry, including films whose runtime is unknown. Initial discovery and session requests start in parallel.
+Discovery batches film persistence into at most two database operations per page, in addition to shared-cache reads/writes and occasional bounded cleanup. Each warm server instance caches up to 100 query/genre/sort/page combinations for five minutes and shares concurrent requests. A private database cache lets new instances reuse successful pages and stale results during outages. Successful public discovery responses also allow Vercel CDN caching for five minutes with background revalidation. Sessions, individual film responses (which include personal collection status), and diary endpoints remain `no-store`. Upstream requests time out after four seconds; failures trigger a cooldown of at least 30 seconds, respect TMDB's `Retry-After` up to five minutes, and reuse a good cached page for up to an hour before falling back to the starter catalog. Each instance allows at most four in-flight TMDB requests and twenty starts per second; these are per-instance protections, not a global TMDB quota. Complete film details retain their own one-day expiry, including films whose runtime is unknown. Initial discovery and session requests start in parallel.
 
 Without a credential, discovery searches only the starter catalog. Artwork requires an internet connection; unavailable images get a readable placeholder.
 
@@ -89,6 +93,22 @@ npm test
 ```
 
 Tests cover SQLite compatibility and PostgreSQL migrations, real registration/login, session cookies, diary CRUD, rewatches, account isolation, numeric rating handling, CSRF, watchlists, concurrent favorite limits, data import, and the Vercel entry point. PostgreSQL tests use PGlite, a development-only PostgreSQL engine, and never touch your cloud database.
+
+Diaries, watchlists, and film reviews use cursor pagination (24 items by default; `limit` accepts 1–100). Pass the returned `nextCursor` as `cursor` for the next page. Diary statistics and watchlist/review totals describe the whole collection. Profiles load only six recent entries. A film detail response returns the latest personal viewing; `?edit=ENTRY_ID` retrieves an older viewing with account ownership checks.
+
+Password hashing allows two concurrent operations and eight waiting operations per process. API handlers allow up to 256 active requests per instance. Excess work returns `503` with `Retry-After`; login throttling remains database-backed. Expired authentication records are cleaned in indexed batches of at most 500 per table, at most once per minute per instance, when an authentication request arrives. Local SQLite operations are serialized to keep concurrent requests outside each other's transactions.
+
+Run the isolated local load smoke test with:
+
+```powershell
+npm run test:load
+# Optional:
+npm run test:load -- --users=25,50,100,200 --iterations=12
+```
+
+It creates an in-memory SQLite database with 25 synthetic accounts and 2,500 diary entries, then exercises sessions, discovery, film pages, diaries, watchlists, and idempotent watchlist writes. It never loads `.env` or contacts the hosted database. Results exclude cloud database latency, CDN behavior, real TMDB traffic, image rendering, cold starts, and login hashing. Use a staging deployment with representative PostgreSQL data to establish production capacity.
+
+The example environment file contains placeholders only. If a database credential was previously committed, rotate it in Supabase and update local and Vercel environment variables; removing it from the current file does not revoke it or erase Git history.
 
 ## Self-hosting
 

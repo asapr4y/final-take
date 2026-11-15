@@ -5,7 +5,7 @@ const $$ = (selector, scope = document) => [...scope.querySelectorAll(selector)]
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const state = { user: null, csrf: null, route: 0, controller: null, detail: null, authMode: 'register', afterAuth: null, lastFocus: null, listPage: 1, shelfFilms: [], shelfIndex: 0, motionPaused: false };
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-let revealObserver;
+let revealObserver, sceneObserver;
 const main = $('#main');
 const genres = [[28, 'Action'], [12, 'Adventure'], [16, 'Animation'], [35, 'Comedy'], [80, 'Crime'], [18, 'Drama'], [14, 'Fantasy'], [27, 'Horror'], [9648, 'Mystery'], [10749, 'Romance'], [878, 'Sci-fi'], [53, 'Thriller']];
 const arrow = '<span aria-hidden="true">↗</span>';
@@ -20,10 +20,13 @@ const stars = rating => `<span class="stars" aria-label="${rating} out of 5 star
 function placeholder(title) { return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="500" height="750"><rect width="500" height="750" fill="#252525"/><text x="250" y="350" text-anchor="middle" fill="#f2f2f2" font-family="Arial" font-size="30">${String(title).replace(/[<>&"']/g, '').slice(0, 24)}</text><text x="250" y="400" text-anchor="middle" fill="#ce352b" font-family="Arial" font-size="15">FINAL TAKE</text></svg>`)}`; }
 
 async function api(path, { method = 'GET', data, signal } = {}) {
-  const response = await fetch(path, { method, credentials: 'same-origin', signal,
+  const timeout = AbortSignal.timeout(20000);
+  const response = await fetch(path, { method, credentials: 'same-origin', signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     headers: { ...(data !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(method !== 'GET' && state.csrf ? { 'X-CSRF-Token': state.csrf } : {}) },
     ...(data !== undefined ? { body: JSON.stringify(data) } : {}) });
-  const result = await response.json();
+  let result;
+  try { result = await response.json(); }
+  catch { throw new Error('The server could not complete this request. Please try again shortly.'); }
   if (!response.ok) {
     if (response.status === 401 && !path.startsWith('/api/auth/')) { state.user = null; state.csrf = null; renderAccount(); }
     throw new Error(result.error || 'Something went wrong. Please try again.');
@@ -43,7 +46,7 @@ function navigate(path, replace = false) {
 }
 function filmCard(film, { index = null, remove = false } = {}) {
   return `<article class="film-card">
-    <a class="poster-link" href="/film/${film.id}" aria-label="View ${escape(film.title)}"><img src="${escape(film.poster || placeholder(film.title))}" alt="${escape(film.title)} poster" loading="lazy" width="500" height="750" />${index !== null ? `<span class="poster-index">${String(index + 1).padStart(2, '0')}</span>` : ''}<span class="poster-open" aria-hidden="true">↗</span></a>
+    <a class="poster-link" href="/film/${film.id}" aria-label="View ${escape(film.title)}"><img src="${escape(film.poster || placeholder(film.title))}" alt="${escape(film.title)} poster" loading="lazy" decoding="async" width="500" height="750" />${index !== null ? `<span class="poster-index">${String(index + 1).padStart(2, '0')}</span>` : ''}<span class="poster-open" aria-hidden="true">↗</span></a>
     <button class="poster-save" data-${remove ? 'remove-watchlist' : 'quick-watchlist'}="${film.id}" aria-label="${remove ? 'Remove' : 'Add'} ${escape(film.title)} ${remove ? 'from' : 'to'} watchlist" title="${remove ? 'Remove from' : 'Add to'} watchlist">${remove ? checkIcon : plus}</button>
     <div class="film-caption"><a href="/film/${film.id}">${escape(film.title)}</a><span>${escape(film.year)}</span></div>
     <p class="film-subtitle">${escape(film.director || film.genres.slice(0, 2).join(' / ') || 'A new discovery')}</p>
@@ -103,8 +106,16 @@ function selectShelfFilm(index, focus = false) {
 function initializeMotion() {
   mountCityScene();
   revealObserver?.disconnect();
-  document.body.classList.toggle('motion-paused', state.motionPaused);
-  if (reducedMotion.matches || state.motionPaused || !('IntersectionObserver' in window)) return;
+  sceneObserver?.disconnect();
+  document.body.classList.toggle('motion-paused', state.motionPaused || document.hidden || reducedMotion.matches);
+  if (reducedMotion.matches || state.motionPaused || document.hidden || !('IntersectionObserver' in window)) return;
+  const scene = $('.city-stage');
+  if (scene) {
+    sceneObserver = new IntersectionObserver(entries => {
+      for (const entry of entries) entry.target.classList.toggle('scene-offscreen', !entry.isIntersecting);
+    }, { rootMargin: '100px' });
+    sceneObserver.observe(scene);
+  }
   revealObserver = new IntersectionObserver(entries => {
     for (const entry of entries) if (entry.isIntersecting) { entry.target.classList.remove('reveal-pending'); revealObserver.unobserve(entry.target); }
   }, {threshold: .06});
@@ -127,13 +138,18 @@ function authGate(section) {
   const diary = section === 'diary';
   return `<section class="page-width gate-page"><p class="eyebrow">YOUR LIFE, FRAME BY FRAME</p><h1>${diary ? 'A story only<br><em>you can write.</em>' : 'So many films.<br><em>Something to look forward to.</em>'}</h1><p>${diary ? 'Keep your ratings, reviews, and watched dates together. Start a diary, and make every viewing a little more memorable.' : 'All those “I need to watch that” moments, collected in one good place.'}</p><button class="button button-primary" data-auth="register">${diary ? 'Start your diary' : 'Create your watchlist'} ${arrow}</button><p class="gate-signin">Already here? <button class="text-button" data-auth="login">Sign in</button></p></section>`;
 }
-function diaryView(entries) {
-  const average = entries.length ? (entries.reduce((sum, e) => sum + e.rating, 0) / entries.length).toFixed(1) : '—';
-  return `<section class="page-width collection-page"><div class="collection-heading"><div><p class="eyebrow">THE FILMS, THE FEELINGS, THE FOOTNOTES</p><h1>Your <em>diary.</em></h1><p>Every viewing has a story. Here’s yours.</p></div><a class="button button-primary" href="/films">Log a film ${plus}</a></div><div class="diary-summary"><div><strong>${entries.length}</strong><span>viewings logged</span></div><div><strong>${new Set(entries.map(e => e.film.id)).size}</strong><span>different films</span></div><div><strong>${average}</strong><span>average rating</span></div></div>
-    ${entries.length ? `<div class="diary-list">${entries.map(entry => `<article class="diary-entry"><div class="entry-date"><strong>${new Date(entry.watchedOn + 'T12:00:00').getDate()}</strong><span>${new Intl.DateTimeFormat('en', { month: 'short', year: 'numeric' }).format(new Date(entry.watchedOn + 'T12:00:00'))}</span></div><a class="diary-poster" href="/film/${entry.film.id}"><img src="${escape(entry.film.poster || placeholder(entry.film.title))}" alt="${escape(entry.film.title)} poster" width="500" height="750" /></a><div class="diary-copy"><h2><a href="/film/${entry.film.id}">${escape(entry.film.title)}</a><span>${escape(entry.film.year)}</span></h2>${stars(entry.rating)}${entry.review ? `<p>${escape(entry.review.slice(0, 240))}${entry.review.length > 240 ? '…' : ''}</p>` : '<p class="quiet">A film remembered, even without the words.</p>'}${entry.spoilers ? '<span class="spoiler-tag">Contains spoilers</span>' : ''}</div><div class="entry-actions"><a class="text-link" href="/film/${entry.film.id}?edit=${entry.id}">Edit</a><button class="text-button muted" data-delete-entry="${entry.id}">Delete</button></div></article>`).join('')}</div>` : emptyState('The opening page is yours.', 'Find a film you’ve seen and leave your first take.', '<a class="button button-primary" href="/films">Find a film ↗</a>')}</section>`;
+function collectionPager(nextCursor, path, label) {
+  const previous = new URLSearchParams(location.search).has('cursor');
+  if (!previous && !nextCursor) return '';
+  return `<nav class="load-more-wrap collection-pagination" aria-label="Page navigation">${previous ? `<a class="button button-outline" href="${path}">Back to first page</a>` : ''}${nextCursor ? `<a class="button button-outline" href="${path}?cursor=${encodeURIComponent(nextCursor)}">${label} ↓</a>` : ''}</nav>`;
 }
-function watchlistView(films) {
-  return `<section class="page-width collection-page"><div class="collection-heading"><div><p class="eyebrow">FOR A RAINY NIGHT, A SUNDAY, OR RIGHT NOW</p><h1>The <em>watchlist.</em></h1><p>${films.length ? `${films.length} ${films.length === 1 ? 'film' : 'films'} waiting for the right moment.` : 'Your next great watch starts here.'}</p></div><a class="button button-outline" href="/films">Find something good ${arrow}</a></div><div class="poster-grid">${films.length ? films.map(film => filmCard(film, { remove: true })).join('') : emptyState('Make room for a little anticipation.', 'Tap the + on a film to save it for later.', '<a class="button button-primary" href="/films">Explore films ↗</a>')}</div></section>`;
+function diaryView({ entries, stats, nextCursor }) {
+  const average = stats.entries ? Number(stats.average).toFixed(1) : '—';
+  return `<section class="page-width collection-page"><div class="collection-heading"><div><p class="eyebrow">THE FILMS, THE FEELINGS, THE FOOTNOTES</p><h1>Your <em>diary.</em></h1><p>Every viewing has a story. Here’s yours.</p></div><a class="button button-primary" href="/films">Log a film ${plus}</a></div><div class="diary-summary"><div><strong>${stats.entries}</strong><span>viewings logged</span></div><div><strong>${stats.films}</strong><span>different films</span></div><div><strong>${average}</strong><span>average rating</span></div></div>
+    ${entries.length ? `<div class="diary-list">${entries.map(entry => `<article class="diary-entry"><div class="entry-date"><strong>${new Date(entry.watchedOn + 'T12:00:00').getDate()}</strong><span>${new Intl.DateTimeFormat('en', { month: 'short', year: 'numeric' }).format(new Date(entry.watchedOn + 'T12:00:00'))}</span></div><a class="diary-poster" href="/film/${entry.film.id}"><img src="${escape(entry.film.poster || placeholder(entry.film.title))}" alt="${escape(entry.film.title)} poster" width="500" height="750" loading="lazy" decoding="async" /></a><div class="diary-copy"><h2><a href="/film/${entry.film.id}">${escape(entry.film.title)}</a><span>${escape(entry.film.year)}</span></h2>${stars(entry.rating)}${entry.review ? `<p>${escape(entry.review.slice(0, 240))}${entry.review.length > 240 ? '…' : ''}</p>` : '<p class="quiet">A film remembered, even without the words.</p>'}${entry.spoilers ? '<span class="spoiler-tag">Contains spoilers</span>' : ''}</div><div class="entry-actions"><a class="text-link" href="/film/${entry.film.id}?edit=${entry.id}">Edit</a><button class="text-button muted" data-delete-entry="${entry.id}">Delete</button></div></article>`).join('')}</div>` : emptyState('The opening page is yours.', 'Find a film you’ve seen and leave your first take.', '<a class="button button-primary" href="/films">Find a film ↗</a>')}${collectionPager(nextCursor, '/diary', 'Older entries')}</section>`;
+}
+function watchlistView({ films, total, nextCursor }) {
+  return `<section class="page-width collection-page"><div class="collection-heading"><div><p class="eyebrow">FOR A RAINY NIGHT, A SUNDAY, OR RIGHT NOW</p><h1>The <em>watchlist.</em></h1><p>${total ? `${total} ${total === 1 ? 'film' : 'films'} waiting for the right moment.` : 'Your next great watch starts here.'}</p></div><a class="button button-outline" href="/films">Find something good ${arrow}</a></div><div class="poster-grid">${films.length ? films.map(film => filmCard(film, { remove: true })).join('') : emptyState('Make room for a little anticipation.', 'Tap the + on a film to save it for later.', '<a class="button button-primary" href="/films">Explore films ↗</a>')}</div>${collectionPager(nextCursor, '/watchlist', 'More saved films')}</section>`;
 }
 function reviewCard(entry, own = false) {
   return `<article class="review-card"><div class="review-author"><a class="avatar avatar-small" href="/u/${entry.username}">${initials(entry.name)}</a><div><a href="/u/${entry.username}">${escape(entry.name)}</a><span>Watched ${dateLabel(entry.watchedOn)}</span></div>${stars(entry.rating)}</div>${entry.spoilers && !own ? `<details class="spoiler-review"><summary>Contains spoilers — reveal review</summary><p>${escape(entry.review)}</p></details>` : `<p>${escape(entry.review)}</p>`}${own ? `<a class="text-link small-link" href="/film/${entry.film.id}?edit=${entry.id}">Edit your entry ${arrow}</a>` : ''}</article>`;
@@ -151,13 +167,13 @@ function entryForm(film, editing = null) {
   </form>`;
 }
 function filmView(detail, params) {
-  const { film, my, aggregate, reviews } = detail;
+  const { film, my, aggregate, reviews, nextCursor } = detail;
   const editing = my?.entries.find(e => e.id === params.get('edit')) || null;
   const runtime = film.runtime ? `${Math.floor(film.runtime / 60)}h ${film.runtime % 60}m` : '';
   return `<section class="film-masthead ${film.backdrop ? '' : 'no-backdrop'}">${film.backdrop ? `<img class="film-backdrop" src="${escape(film.backdrop)}" alt="" />` : ''}<div class="page-width film-masthead-inner"><a class="back-link" href="/films">← Back to discoveries</a><p class="eyebrow">${escape(film.genres.slice(0, 3).join(' / '))}</p><h1>${escape(film.title)}</h1><p class="film-byline">${escape(film.year)}${runtime ? ` <span>·</span> ${runtime}` : ''}${film.director ? ` <span>·</span> Directed by <strong>${escape(film.director)}</strong>` : ''}</p></div></section>
     <div class="page-width film-layout"><aside class="film-poster-column"><img class="detail-poster" src="${escape(film.poster || placeholder(film.title))}" alt="${escape(film.title)} poster" width="500" height="750" /><div class="film-collection-actions"><button class="button button-outline ${my?.watchlisted ? 'is-saved' : ''}" data-toggle-watchlist="${film.id}" data-saved="${Boolean(my?.watchlisted)}">${my?.watchlisted ? checkIcon : bookmark}${my?.watchlisted ? 'In your watchlist' : 'Add to watchlist'}</button><button class="text-button favorite-action" data-toggle-favorite="${film.id}" data-saved="${Boolean(my?.favorite)}">${my?.favorite ? '♥ In your four favorites' : '♡ Make it a favorite'}</button></div></aside>
     <div class="film-story"><p class="eyebrow">THE STORY</p>${film.tagline ? `<h2 class="tagline">${escape(film.tagline)}</h2>` : ''}<p class="film-overview">${escape(film.overview)}</p><div class="film-facts"><div><span>RELEASED</span><strong>${escape(film.year || 'Not announced')}</strong></div><div><span>GENRES</span><strong>${escape(film.genres.join(', ') || 'Unlisted')}</strong></div>${film.director ? `<div><span>DIRECTOR</span><strong>${escape(film.director)}</strong></div>` : ''}</div>
-    <section class="reviews-section"><div class="section-heading"><div><p class="eyebrow">EVERY FILM STARTS A CONVERSATION</p><h2>The takes.</h2></div><span class="review-count">${reviews.length} ${reviews.length === 1 ? 'review' : 'reviews'}</span></div>${aggregate.count ? `<div class="community-rating">${stars(aggregate.average)}<strong>${aggregate.average}/5</strong><span>from ${aggregate.count} ${aggregate.count === 1 ? 'viewing' : 'viewings'}</span></div>` : ''}${reviews.length ? reviews.map(entry => reviewCard(entry, entry.userId === state.user?.id)).join('') : '<div class="review-empty"><span aria-hidden="true">“</span><p>No reviews yet.<br>There’s room here for your perspective.</p></div>'}</section></div>
+    <section class="reviews-section"><div class="section-heading"><div><p class="eyebrow">EVERY FILM STARTS A CONVERSATION</p><h2>The takes.</h2></div><span class="review-count">${aggregate.reviews} ${aggregate.reviews === 1 ? 'review' : 'reviews'}</span></div>${aggregate.count ? `<div class="community-rating">${stars(aggregate.average)}<strong>${aggregate.average}/5</strong><span>from ${aggregate.count} ${aggregate.count === 1 ? 'viewing' : 'viewings'}</span></div>` : ''}${reviews.length ? reviews.map(entry => reviewCard(entry, entry.userId === state.user?.id)).join('') : '<div class="review-empty"><span aria-hidden="true">“</span><p>No reviews yet.<br>There’s room here for your perspective.</p></div>'}${collectionPager(nextCursor, `/film/${film.id}`, 'Older reviews')}</section></div>
     <aside class="film-log-column">${state.user ? `${my?.entries.length && !editing ? `<div class="last-viewing">${checkIcon}<div>Already part of your diary<small>Last watched ${dateLabel(my.entries[0].watchedOn)} · ${my.entries[0].rating}/5</small></div></div>` : ''}${entryForm(film, editing)}` : `<div class="join-card"><span class="join-symbol" aria-hidden="true">✳</span><p class="eyebrow">YOU HAVE A TAKE.</p><h2>Give it a<br>place to live.</h2><p>Rate this film, write a review, and keep it in your own film diary.</p><button class="button button-primary" data-auth="register">Start your diary ${arrow}</button><button class="text-button" data-auth="login">Already a member? Sign in</button></div>`}</aside></div>`;
 }
 function profileView(profile) {
@@ -165,7 +181,7 @@ function profileView(profile) {
   return `<section class="page-width profile-page"><div class="profile-heading"><span class="avatar avatar-large">${initials(profile.user.name)}</span><div><p class="eyebrow">A LIFE IN FILMS</p><h1>${escape(profile.user.name)}<span class="profile-period">.</span></h1><p class="profile-username">@${profile.user.username} · Here since ${new Intl.DateTimeFormat('en', { month: 'long', year: 'numeric' }).format(new Date(profile.user.joined))}</p>${profile.user.bio ? `<p class="profile-bio">${escape(profile.user.bio)}</p>` : own ? '<p class="profile-bio quiet">A few words about your taste would look good here.</p>' : ''}</div>${own ? '<button class="button button-outline" data-edit-profile>Edit profile ↗</button>' : ''}</div>
     <div class="profile-stats"><div><strong>${profile.stats.films}</strong><span>films watched</span></div><div><strong>${profile.stats.entries}</strong><span>diary entries</span></div><div><strong>${profile.stats.reviews}</strong><span>reviews written</span></div><div><strong>${profile.stats.average || '—'}</strong><span>average rating</span></div></div>
     <section class="favorites-section">${sectionHeading('FOUR FILMS. A THOUSAND WORDS.', own ? 'Your kind of cinema.' : `${escape(profile.user.name.split(' ')[0])}’s kind of cinema.`)}<div class="favorites-grid">${Array.from({ length: 4 }, (_, i) => profile.favorites[i] ? filmCard(profile.favorites[i]) : `<a class="favorite-empty" href="/films" aria-label="Discover a favorite film"><span aria-hidden="true">${String(i + 1).padStart(2, '0')}</span><p>${own ? 'Find a favorite' : 'An open frame'} ${arrow}</p></a>`).join('')}</div>${own ? '<p class="section-note">Add a film to your four favorites from its film page.</p>' : ''}</section>
-    <section class="profile-recent">${sectionHeading('THE LATEST CHAPTER', 'Recently watched.', own ? '<a class="text-link" href="/diary">Open full diary ↗</a>' : '')}${profile.entries.length ? `<div class="recent-grid">${profile.entries.slice(0, 6).map(entry => `<article><a href="/film/${entry.film.id}"><img src="${escape(entry.film.poster || placeholder(entry.film.title))}" alt="${escape(entry.film.title)} poster" width="500" height="750" /></a><a class="recent-title" href="/film/${entry.film.id}">${escape(entry.film.title)}</a>${stars(entry.rating)}<span class="recent-date">${dateLabel(entry.watchedOn)}</span></article>`).join('')}</div>` : emptyState(own ? 'Your first chapter is waiting.' : 'The opening credits are still rolling.', own ? 'Log a film to start filling these pages.' : 'No films logged yet.', own ? '<a class="button button-outline" href="/films">Find a film ↗</a>' : '')}</section></section>`;
+    <section class="profile-recent">${sectionHeading('THE LATEST CHAPTER', 'Recently watched.', own ? '<a class="text-link" href="/diary">Open full diary ↗</a>' : '')}${profile.entries.length ? `<div class="recent-grid">${profile.entries.slice(0, 6).map(entry => `<article><a href="/film/${entry.film.id}"><img src="${escape(entry.film.poster || placeholder(entry.film.title))}" alt="${escape(entry.film.title)} poster" width="500" height="750" loading="lazy" decoding="async" /></a><a class="recent-title" href="/film/${entry.film.id}">${escape(entry.film.title)}</a>${stars(entry.rating)}<span class="recent-date">${dateLabel(entry.watchedOn)}</span></article>`).join('')}</div>` : emptyState(own ? 'Your first chapter is waiting.' : 'The opening credits are still rolling.', own ? 'Log a film to start filling these pages.' : 'No films logged yet.', own ? '<a class="button button-outline" href="/films">Find a film ↗</a>' : '')}</section></section>`;
 }
 
 async function renderRoute(prefetch = null) {
@@ -179,9 +195,9 @@ async function renderRoute(prefetch = null) {
     const loadCatalog = endpoint => prefetch?.path === endpoint ? prefetch.promise : api(endpoint, { signal });
     if (path === '/') { const result = await loadCatalog('/api/films'); html = homeView(result.films); }
     else if (path === '/films') { const result = await loadCatalog(`/api/films?${params}`); html = discoverView(result, params); title = 'Discover'; }
-    else if (path === '/diary') { html = state.user ? diaryView((await api('/api/me/diary', { signal })).entries) : authGate('diary'); title = 'Your diary'; }
-    else if (path === '/watchlist') { html = state.user ? watchlistView((await api('/api/me/watchlist', { signal })).films) : authGate('watchlist'); title = 'Your watchlist'; }
-    else if (/^\/film\/\d+$/.test(path)) { const detail = await api(`/api/films/${path.split('/')[2]}`, { signal }); if (route !== state.route) return; state.detail = detail; html = filmView(detail, params); title = detail.film.title; }
+    else if (path === '/diary') { html = state.user ? diaryView(await api(`/api/me/diary?${params}`, { signal })) : authGate('diary'); title = 'Your diary'; }
+    else if (path === '/watchlist') { html = state.user ? watchlistView(await api(`/api/me/watchlist?${params}`, { signal })) : authGate('watchlist'); title = 'Your watchlist'; }
+    else if (/^\/film\/\d+$/.test(path)) { const detail = await api(`/api/films/${path.split('/')[2]}?${params}`, { signal }); if (route !== state.route) return; state.detail = detail; html = filmView(detail, params); title = detail.film.title; }
     else if (/^\/u\/[a-zA-Z0-9_]+$/.test(path)) { const profile = await api(`/api/members/${path.split('/')[2]}`, { signal }); html = profileView(profile); title = profile.user.name; }
     else html = `<section class="page-width">${emptyState('A missing reel.', 'This page isn’t part of the story. Let’s find you a good film instead.', '<a class="button button-primary" href="/films">Back to discoveries ↗</a>')}</section>`;
     if (route !== state.route) return;
@@ -216,10 +232,11 @@ document.addEventListener('click', async event => {
   const motionToggle = event.target.closest('[data-toggle-motion]');
   if (motionToggle) {
     state.motionPaused = !state.motionPaused;
-    document.body.classList.toggle('motion-paused', state.motionPaused);
+    document.body.classList.toggle('motion-paused', state.motionPaused || document.hidden || reducedMotion.matches);
     motionToggle.setAttribute('aria-pressed', String(state.motionPaused));
     $('[data-motion-label]', motionToggle).textContent = state.motionPaused ? 'Resume motion' : 'Pause motion';
     if (state.motionPaused) { revealObserver?.disconnect(); $$('.reveal-pending', main).forEach(section => section.classList.remove('reveal-pending')); }
+    initializeMotion();
     return;
   }
   const auth = event.target.closest('[data-auth]'); if (auth) return openAuth(auth.dataset.auth);
@@ -237,8 +254,21 @@ document.addEventListener('click', async event => {
     if (target.dataset.removeWatchlist) { target.disabled = true; return await toggleCollection('watchlist', target.dataset.removeWatchlist, true); }
     if (target.dataset.toggleWatchlist || target.dataset.toggleFavorite) { const type = target.dataset.toggleWatchlist ? 'watchlist' : 'favorites', id = target.dataset.toggleWatchlist || target.dataset.toggleFavorite; return requireAccount(async () => { try { target.disabled = true; await toggleCollection(type, id, target.dataset.saved === 'true'); } catch (error) { toast(error.message); } finally { target.disabled = false; } }); }
     if (target.dataset.deleteEntry) { if (!await confirmDelete()) return; target.disabled = true; await api(`/api/entries/${target.dataset.deleteEntry}`, { method: 'DELETE' }); toast('Entry removed from your diary.'); return renderRoute(); }
-    if (target.hasAttribute('data-load-more')) { target.disabled = true; target.textContent = 'Finding a few more…'; const params = new URLSearchParams(location.search); params.set('page', state.listPage + 1); const result = await api(`/api/films?${params}`); state.listPage = result.page; $('#filmGrid')?.insertAdjacentHTML('beforeend', result.films.map(f => filmCard(f)).join('')); if (result.page >= result.totalPages) target.remove(); else { target.disabled = false; target.textContent = 'More discoveries ↓'; } }
-  } catch (error) { toast(error.message); target.disabled = false; }
+    if (target.hasAttribute('data-load-more')) {
+      const route = state.route, label = target.textContent;
+      target.disabled = true; target.textContent = 'Finding a few more…';
+      try {
+        const params = new URLSearchParams(location.search); params.set('page', state.listPage + 1);
+        const result = await api(`/api/films?${params}`, { signal: state.controller?.signal });
+        if (route !== state.route || !target.isConnected) return;
+        state.listPage = result.page;
+        $('#filmGrid')?.insertAdjacentHTML('beforeend', result.films.map(f => filmCard(f)).join(''));
+        const count = $('.results-heading span:last-child');
+        if (count) count.textContent = `${$$('#filmGrid .film-card').length} films loaded`;
+        if (result.page >= result.totalPages) target.remove();
+      } finally { target.disabled = false; target.textContent = label; }
+    }
+  } catch (error) { if (error.name !== 'AbortError') toast(error.message); target.disabled = false; }
 });
 document.addEventListener('change', event => {
   if (event.target.id === 'ratingSelect') updateRating(Number(event.target.value));
@@ -263,6 +293,7 @@ for (const dialog of $$('dialog')) {
   dialog.addEventListener('close', () => { if (dialog.id === 'authDialog') state.lastFocus?.isConnected && state.lastFocus.focus(); });
 }
 window.addEventListener('popstate', renderRoute);
+document.addEventListener('visibilitychange', initializeMotion);
 document.addEventListener('keydown', event => { if (event.key === 'Escape') $$('.account-menu[open]').forEach(menu => menu.removeAttribute('open')); });
 async function boot() {
   // Public discovery can load while the session is being checked. Rendering still

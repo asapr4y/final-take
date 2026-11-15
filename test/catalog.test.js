@@ -20,23 +20,25 @@ async function fixture(t, options) {
   return { db, catalog, queries };
 }
 
-test('a discovery page uses two database operations and concurrent/repeated requests reuse it', async t => {
+test('discovery batches film persistence, maintains shared cache, and deduplicates concurrent requests', async t => {
   const calls = [];
   const { catalog, queries } = await fixture(t, { fetcher: async url => {
     calls.push(new URL(url)); return response(page(Array.from({ length: 20 }, (_, i) => movie(900001 + i))));
   } });
   const results = await Promise.all([catalog.list(), catalog.list(), catalog.list()]);
   assert.equal(calls.length, 1);
-  assert.equal(queries.length, 2, 'one batch read and one batch insert for twenty films');
+  assert.equal(queries.filter(sql => /^(SELECT id, json FROM films|INSERT INTO films)/.test(sql)).length, 2, 'one batch read and one batch insert for twenty films');
+  assert.equal(queries.length, 5, 'shared cache lookup, film read/insert, cache write, and bounded cleanup');
   assert.equal(results[0].films.length, 20);
   await catalog.list();
-  assert.equal(calls.length, 1); assert.equal(queries.length, 2);
+  assert.equal(calls.length, 1); assert.equal(queries.length, 5, 'warm memory cache performs no database queries');
   await catalog.list({ query: 'different', genre: '18', page: 2 });
   assert.equal(calls.length, 2);
   assert.equal(calls[1].pathname, '/3/search/movie');
   assert.equal(calls[1].searchParams.get('query'), 'different');
   assert.equal(calls[1].searchParams.get('page'), '2');
-  assert.equal(queries.length, 3, 'existing films do not need rewriting');
+  assert.equal(queries.filter(sql => /^INSERT INTO films/.test(sql)).length, 1, 'existing films do not need rewriting');
+  assert.equal(queries.length, 8);
 });
 
 test('complete details without a runtime are cached and list refreshes do not reset their age', async t => {
@@ -99,4 +101,54 @@ test('missing movies remain 404s and original backdrops are capped in public res
   assert.equal(await catalog.get(9999999), null);
   const film = await catalog.get(693134);
   assert.match(film.backdrop, /\/w1280\//);
+});
+
+test('new instances reuse persisted discovery pages and stale pages during an outage', async t => {
+  let clock = 1700000000000, calls = 0, unavailable = false;
+  const fetcher = async () => {
+    calls++;
+    if (unavailable) throw new Error('Offline');
+    return response(page([movie()]));
+  };
+  const { catalog, db } = await fixture(t, { now: () => clock, fetcher });
+  const first = await catalog.list();
+  const another = await createCatalog(db, { tmdbToken: 'test-only-token', now: () => clock, fetcher });
+  assert.deepEqual(await another.list(), first);
+  assert.equal(calls, 1, 'warm shared cache avoids another TMDB request');
+  clock += 300001; unavailable = true;
+  const cold = await createCatalog(db, { tmdbToken: 'test-only-token', now: () => clock, fetcher });
+  assert.deepEqual(await cold.list(), first);
+  assert.equal(calls, 2);
+});
+
+test('catalog bursts bound in-flight upstream work and gracefully fall back', async t => {
+  let release, started, calls = 0;
+  const ready = new Promise(resolve => { started = resolve; });
+  const hold = new Promise(resolve => { release = resolve; });
+  const { catalog } = await fixture(t, { fetcher: async () => {
+    if (++calls === 4) started();
+    await hold;
+    return response(page([movie()]));
+  } });
+  const pending = Array.from({ length: 5 }, (_, i) => catalog.list({ query: String(i) }));
+  await ready;
+  const fallback = await pending[4];
+  assert.equal(fallback.expanded, false);
+  release();
+  assert.equal((await Promise.all(pending)).filter(result => result.expanded).length, 4);
+  assert.equal(calls, 4);
+});
+
+test('TMDB retry-after is respected across different searches', async t => {
+  let clock = 1700000000000, calls = 0;
+  const { catalog } = await fixture(t, { now: () => clock, fetcher: async () => {
+    calls++;
+    return { ok: false, status: 429, headers: new Headers({ 'Retry-After': '60' }) };
+  } });
+  await catalog.list(); clock += 30001;
+  await catalog.list({ query: 'another' });
+  assert.equal(calls, 1);
+  clock += 30000;
+  await catalog.list({ query: 'retry' });
+  assert.equal(calls, 2);
 });

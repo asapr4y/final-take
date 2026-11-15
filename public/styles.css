@@ -836,3 +836,5 @@ main { min-height: calc(100svh - 270px); }
 @media (prefers-reduced-motion:reduce) {
   .city-title, .city-poster { opacity:1; }
 }
+.collection-pagination { display:flex; flex-wrap:wrap; justify-content:center; gap:12px; }
+.city-stage.scene-offscreen * { animation-play-state:paused; }

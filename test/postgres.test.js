@@ -55,14 +55,18 @@ test('PostgreSQL discovery batches film persistence and preserves complete cache
 test('PostgreSQL migrations are repeatable, preserve records, and isolate credentials from API roles', async t => {
   const { db, engine } = await testPostgres(); t.after(() => db.close());
   await engine.exec('CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN');
-  assert.equal((await migrateDatabase(db)).length, 1);
+  assert.equal((await migrateDatabase(db)).length, 2);
   await db.prepare('INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?)').run('test-id', 'existing', 'existing@example.com', 'Existing', 'test-hash', '', '2026-01-01');
   assert.equal((await migrateDatabase(db)).length, 0);
   assert.equal((await db.prepare('SELECT COUNT(*) AS count FROM users').get()).count, 1);
   const access = await engine.query("SELECT has_schema_privilege('anon', 'final_take', 'USAGE') AS anon, has_schema_privilege('authenticated', 'final_take', 'USAGE') AS authenticated");
   assert.deepEqual(access.rows[0], { anon: false, authenticated: false });
   const rls = await engine.query("SELECT relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='final_take' AND c.relkind='r' AND c.relrowsecurity");
-  assert.equal(rls.rows.length, 7);
+  assert.equal(rls.rows.length, 8);
+  for (const role of ['anon', 'authenticated']) {
+    const permission = await engine.query(`SELECT has_table_privilege('${role}', 'final_take.catalog_cache', 'SELECT') AS allowed`);
+    assert.equal(permission.rows[0].allowed, false);
+  }
 });
 
 test('Supabase PostgreSQL path supports accounts, numeric ratings, diary CRUD, profiles, watchlists and favorite limits', async t => {

@@ -1,6 +1,7 @@
 .git
 .env
 .env.local
+.env.*
 data
 node_modules
 test

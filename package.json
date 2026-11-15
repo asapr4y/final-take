@@ -10,11 +10,12 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env server.js",
     "dev": "node --watch --env-file-if-exists=.env server.js",
-    "check": "node --check server.js && node --check api/index.js && node --check lib/database.js && node --check lib/sqlite.js && node --check lib/migrations.js && node --check lib/import.js && node --check lib/auth.js && node --check lib/catalog.js && node --check lib/seed.js && node --check scripts/migrate.js && node --check scripts/import-sqlite.js && node --check public/app.js && node --check public/city-scene.js",
+    "check": "node --check server.js && node --check api/index.js && node --check lib/pagination.js && node --check lib/database.js && node --check lib/sqlite.js && node --check lib/migrations.js && node --check lib/import.js && node --check lib/auth.js && node --check lib/catalog.js && node --check lib/seed.js && node --check scripts/load-smoke.js && node --check scripts/migrate.js && node --check scripts/import-sqlite.js && node --check public/app.js && node --check public/city-scene.js",
     "test": "node --test",
     "db:migrate": "node --env-file-if-exists=.env scripts/migrate.js",
     "db:import": "node --env-file-if-exists=.env scripts/import-sqlite.js",
-    "vercel:build": "npm run check && npm run db:migrate"
+    "vercel:build": "npm run check && npm run db:migrate",
+    "test:load": "node scripts/load-smoke.js"
   },
   "dependencies": {
     "postgres": "4.1.1"
