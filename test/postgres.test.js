@@ -7,6 +7,7 @@ import { migrateDatabase } from '../lib/migrations.js';
 import { importRows } from '../lib/import.js';
 import { hashPassword } from '../lib/auth.js';
 import { testPostgres } from '../test-support/postgres.js';
+import { createCatalog } from '../lib/catalog.js';
 
 const userData = name => ({ name, username: name.toLowerCase(), email: `${name.toLowerCase()}@example.com`, password: 'a-good-password-for-the-migration' });
 const entry = { filmId: 693134, rating: 4.5, review: 'Stored in PostgreSQL.', watchedOn: '2026-01-20', spoilers: false };
@@ -32,6 +33,23 @@ async function startPostgres() {
 test('PostgreSQL SQL conversion qualifies private tables and preserves parameterized text', () => {
   assert.equal(postgresSQL("SELECT '?' AS literal FROM users WHERE email = ?"), "SELECT '?' AS literal FROM final_take.users WHERE email = $1");
   assert.equal(postgresSQL('SELECT COUNT(*) AS films FROM entries WHERE user_id = ?'), 'SELECT COUNT(*) AS films FROM final_take.entries WHERE user_id = $1');
+});
+
+test('PostgreSQL discovery batches film persistence and preserves complete cached records', async t => {
+  const { db } = await testPostgres(); t.after(() => db.close()); await migrateDatabase(db);
+  let calls = 0;
+  const catalog = await createCatalog(db, { tmdbToken: 'test-only-token', fetcher: async url => {
+    calls++;
+    if (new URL(url).pathname === '/3/movie/900001') return { ok: true, json: async () => ({ id: 900001, title: 'Discovery', runtime: 110, genres: [{ name: 'Drama' }] }) };
+    return { ok: true, json: async () => ({ total_pages: 1, results: [693134, 900001, 900002].map(id => ({ id, title: 'Discovery', poster_path: '/poster.jpg', genre_ids: [18] })) }) };
+  } });
+  const result = await catalog.list();
+  assert.equal(result.films.length, 3);
+  assert.equal(result.films[0].title, 'Dune: Part Two');
+  assert.equal((await catalog.get(900001)).runtime, 110);
+  await catalog.list();
+  assert.equal(calls, 2, 'one list request and one complete detail request');
+  assert.equal((await db.prepare('SELECT COUNT(*) AS count FROM films').get()).count, 19);
 });
 
 test('PostgreSQL migrations are repeatable, preserve records, and isolate credentials from API roles', async t => {

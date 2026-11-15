@@ -64,7 +64,7 @@ export async function createApp({ databasePath = process.env.SQLITE_PATH || './d
     response.setHeader('X-Frame-Options', 'DENY');
     response.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
     response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https://image.tmdb.org https://www.themoviedb.org data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
-    const send = (data, status = 200) => { response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); response.end(JSON.stringify(data)); };
+    const send = (data, status = 200, cache = 'no-store') => { response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': cache }); response.end(JSON.stringify(data)); };
     try {
       const url = new URL(request.url, 'http://localhost');
       const path = url.pathname;
@@ -78,6 +78,16 @@ export async function createApp({ databasePath = process.env.SQLITE_PATH || './d
         const mime = { '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.jpeg': 'image/jpeg', '.html': 'text/html' }[extname(name)];
         response.writeHead(200, { 'Content-Type': `${mime}; charset=utf-8`, 'Cache-Control': 'no-cache' });
         return response.end(method === 'HEAD' ? undefined : file);
+      }
+      // Discovery is public and identical for every account. Skip session queries and
+      // let Vercel reuse these pages; personalized endpoints retain no-store below.
+      if (path === '/api/films' && method === 'GET') {
+        const query = String(url.searchParams.get('q') || '').trim().slice(0, 100);
+        const genre = String(url.searchParams.get('genre') || '').slice(0, 6);
+        const page = Math.min(500, Math.max(1, Number(url.searchParams.get('page')) || 1));
+        const sort = ['popular', 'newest', 'title'].includes(url.searchParams.get('sort')) ? url.searchParams.get('sort') : 'popular';
+        const result = await catalog.list({ query, genre, sort, page: Math.floor(page) });
+        return send(result, 200, result.expanded ? 'public, max-age=30, s-maxage=300, stale-while-revalidate=1800' : 'no-store');
       }
       const session = await sessionFor(db, request);
       const secure = appOrigin.startsWith('https:') || Boolean(process.env.VERCEL);
@@ -119,13 +129,6 @@ export async function createApp({ databasePath = process.env.SQLITE_PATH || './d
         return send(await startSession(db, response, user, secure));
       }
       if (path === '/api/auth/logout' && method === 'POST') { await endSession(db, response, session, secure); return send({ ok: true }); }
-      if (path === '/api/films' && method === 'GET') {
-        const query = String(url.searchParams.get('q') || '').trim().slice(0, 100);
-        const genre = String(url.searchParams.get('genre') || '').slice(0, 6);
-        const page = Math.min(500, Math.max(1, Number(url.searchParams.get('page')) || 1));
-        const sort = ['popular', 'newest', 'title'].includes(url.searchParams.get('sort')) ? url.searchParams.get('sort') : 'popular';
-        return send(await catalog.list({ query, genre, sort, page: Math.floor(page) }));
-      }
       const filmRoute = path.match(/^\/api\/films\/(\d+)$/);
       if (filmRoute && method === 'GET') {
         const film = await catalog.get(idValue(filmRoute[1])); if (!film) fail('Film not found.', 404);

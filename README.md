@@ -77,6 +77,8 @@ Use `npm run dev` for automatic restarts. Credentials and local database files a
 
 Add a **TMDB API Read Access Token** as `TMDB_READ_TOKEN` in `.env` or Vercel's server-side environment variables. A legacy `TMDB_API_KEY` also works. The credential stays on the server. If TMDB is unavailable, the starter catalog remains available.
 
+Discovery batches film persistence into at most two database operations per page. Each warm server instance caches up to 100 query/genre/sort/page combinations for five minutes and shares concurrent requests. Successful public discovery responses also allow Vercel CDN caching for five minutes with background revalidation. Sessions, individual film responses (which include personal collection status), and diary endpoints remain `no-store`. Upstream requests time out after four seconds; failures trigger a 30-second cooldown and reuse a good cached page for up to an hour before falling back to the starter catalog. Complete film details retain their own one-day expiry, including films whose runtime is unknown. Initial discovery and session requests start in parallel.
+
 Without a credential, discovery searches only the starter catalog. Artwork requires an internet connection; unavailable images get a readable placeholder.
 
 ## Checks

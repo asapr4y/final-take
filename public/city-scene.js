@@ -25,13 +25,13 @@ function person(x, y, scale, coat = '#292b2b', facing = 1) {
 }
 
 function taxi() {
-  return `<g transform="translate(230) scale(-1 1)"><path d="M14 47 35 41 63 11h82l35 31 40 14 5 34H7Z" fill="url(#ftc-taxi)" stroke="#171716" stroke-width="3"/><path d="M67 16h35v27H43Zm42 0h32l30 27h-62Z" fill="#222d2f" stroke="#a3813b" stroke-width="2"/><path d="m72 20-19 19h42V20Zm46 0v19h40l-20-19Z" fill="#71807a" opacity=".24"/><rect x="20" y="54" width="191" height="7" fill="#343026"/><path d="M23 54h12m12 0h12m12 0h12m12 0h12m12 0h12m12 0h12m12 0h12m12 0h12" stroke="#d4bd7c" stroke-width="5"/><path d="M108 66h12m31-17v30M57 49v30" fill="none" stroke="#736135" stroke-width="1.5"/><rect x="86" y="0" width="42" height="13" rx="2" fill="#eee2ae" stroke="#4c4329"/><text x="107" y="9" fill="#27241d" font-family="Arial,sans-serif" font-size="8" font-weight="700" text-anchor="middle">TAXI</text><text x="114" y="75" fill="#393426" font-family="Arial,sans-serif" font-size="7" font-weight="700" text-anchor="middle">NEW YORK CITY</text><rect x="204" y="61" width="15" height="9" rx="2" fill="#ffe8b8"/><path d="m218 61 115-19v49L218 69Z" fill="url(#ftc-headlight)"/><rect x="9" y="62" width="8" height="7" fill="#d24632"/><path d="M5 82h219" stroke="#b9b6a6" stroke-width="5"/><g transform="translate(48 85)"><circle r="17" fill="#101516"/><g class="scene-wheel"><circle r="9" fill="#9c9d90" stroke="#4a4c49" stroke-width="2"/><path d="M-8 0H8M0-8V8m-6-6L6 6M-6 6 6-6" stroke="#3e4240" stroke-width="2"/></g></g><g transform="translate(177 85)"><circle r="17" fill="#101516"/><g class="scene-wheel"><circle r="9" fill="#9c9d90" stroke="#4a4c49" stroke-width="2"/><path d="M-8 0H8M0-8V8m-6-6L6 6M-6 6 6-6" stroke="#3e4240" stroke-width="2"/></g></g></g>`;
+  return `<g transform="translate(230) scale(-1 1)"><path d="M14 47 35 41 63 11h82l35 31 40 14 5 34H7Z" fill="url(#ftc-taxi)" stroke="#171716" stroke-width="3"/><path d="M67 16h35v27H43Zm42 0h32l30 27h-62Z" fill="#222d2f" stroke="#a3813b" stroke-width="2"/><path d="m72 20-19 19h42V20Zm46 0v19h40l-20-19Z" fill="#71807a" opacity=".24"/><rect x="20" y="54" width="191" height="7" fill="#343026"/><path d="M23 54h12m12 0h12m12 0h12m12 0h12m12 0h12m12 0h12m12 0h12m12 0h12" stroke="#d4bd7c" stroke-width="5"/><path d="M108 66h12m31-17v30M57 49v30" fill="none" stroke="#736135" stroke-width="1.5"/><rect x="86" y="0" width="42" height="13" rx="2" fill="#eee2ae" stroke="#4c4329"/><text transform="translate(214 0) scale(-1 1)" x="107" y="9" fill="#27241d" font-family="Arial,sans-serif" font-size="8" font-weight="700" text-anchor="middle">TAXI</text><text transform="translate(228 0) scale(-1 1)" x="114" y="75" fill="#393426" font-family="Arial,sans-serif" font-size="7" font-weight="700" text-anchor="middle">NEW YORK CITY</text><rect x="204" y="61" width="15" height="9" rx="2" fill="#ffe8b8"/><path d="m218 61 115-19v49L218 69Z" fill="url(#ftc-headlight)"/><rect x="9" y="62" width="8" height="7" fill="#d24632"/><path d="M5 82h219" stroke="#b9b6a6" stroke-width="5"/><g transform="translate(48 85)"><circle r="17" fill="#101516"/><g class="scene-wheel"><circle r="9" fill="#9c9d90" stroke="#4a4c49" stroke-width="2"/><path d="M-8 0H8M0-8V8m-6-6L6 6M-6 6 6-6" stroke="#3e4240" stroke-width="2"/></g></g><g transform="translate(177 85)"><circle r="17" fill="#101516"/><g class="scene-wheel"><circle r="9" fill="#9c9d90" stroke="#4a4c49" stroke-width="2"/><path d="M-8 0H8M0-8V8m-6-6L6 6M-6 6 6-6" stroke="#3e4240" stroke-width="2"/></g></g></g>`;
 }
 
 export function renderCityScene() {
   const canopy = Array.from({ length: 4 }, (_, row) => bulbs(492 + row * 24, 638 + row * 17, 1282 - row * 24, 638 + row * 17, 39 - row * 2, 2.5)).join('');
   const crowd = Array.from({ length: 24 }, (_, i) => person(528 + i * 30, 811 + i % 4 * 5, .87 + i % 4 * .07, ['#31343a', '#7b5239', '#5b5c51', '#292c31'][i % 4])).join('');
-  return `<svg class="city-architecture" viewBox="0 0 1774 910" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+  return `<svg class="city-architecture" viewBox="0 0 1774 1040" preserveAspectRatio="none" aria-hidden="true" focusable="false">
   <defs>
     <linearGradient id="ftc-sky" x2="0" y2="1"><stop stop-color="#080a0e"/><stop offset=".7" stop-color="#1c2029"/><stop offset="1" stop-color="#15171c"/></linearGradient>
     <linearGradient id="ftc-brick" x2="1" y2=".2"><stop stop-color="#191b20"/><stop offset=".5" stop-color="#2c2527"/><stop offset="1" stop-color="#171b20"/></linearGradient>
@@ -102,8 +102,10 @@ export function renderCityScene() {
     <path d="m190 841-75 199h140l64-199Zm450 16-61 183h170l28-183Zm780-16-39 199h198l-19-199Z" fill="url(#ftc-reflection)" opacity=".3"/>
     <g stroke-linecap="round" opacity=".3"><path d="m143 879 92-7m-137 40 130-11m360 20 102-8m-93 46 153-14m583-88 127-10m-121 53 147-15" stroke="#d3d7dc" stroke-width="3"/><path d="m1075 877 152-16m-174 65 139-17m-101 66 176-21" stroke="#b74a42" stroke-width="4"/></g>
   </g>
+  <g class="scene-sidewalk"><path d="M0 829h1774v53H0Z" fill="#343940"/><path d="M0 837h1774m-1694 0v43m140-43v43m140-43v43m140-43v43m140-43v43m140-43v43m140-43v43m140-43v43m140-43v43m140-43v43m140-43v43m140-43v43m140-43v43" stroke="#59616b" stroke-width="1" opacity=".3"/><path d="M0 882h1774" stroke="#9b9da1" stroke-width="3"/><path d="M0 888h1774" stroke="#080d14" stroke-width="8"/></g>
   <g class="scene-people">${crowd}${person(159, 835, 1.3, '#292b32')}${person(1565, 833, 1.3, '#504239')}<g class="scene-walker">${person(1358, 846, 1.5, '#6e503c')}${person(1400, 841, 1.3, '#292c34')}</g></g>
-  <g class="scene-traffic"><g transform="translate(1670 826) scale(1.12)"><g class="scene-cab-motion">${taxi()}</g></g><g transform="translate(1730 804) scale(.66)"><g class="scene-cab-motion scene-cab-far">${taxi()}</g></g></g>
+  <!-- Pedestrian feet remain above y=882; both taxi bodies stay below y=900. -->
+  <g class="scene-traffic"><g transform="translate(1670 909) scale(.88)"><g class="scene-cab-motion">${taxi()}</g></g><g transform="translate(1730 900) scale(.58)"><g class="scene-cab-motion scene-cab-far">${taxi()}</g></g></g>
   </svg>`;
 }
 
@@ -112,5 +114,5 @@ export function mountCityScene() {
   if (!scene) return;
   const portrait = window.matchMedia('(max-width: 700px)').matches;
   scene.classList.toggle('is-portrait', portrait);
-  scene.setAttribute('viewBox', portrait ? '0 0 700 1040' : '0 0 1774 910');
+  scene.setAttribute('viewBox', portrait ? '0 0 700 1040' : '0 0 1774 1040');
 }

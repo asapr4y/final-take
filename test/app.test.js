@@ -134,10 +134,16 @@ test('live discovery keeps the token server-side, honors genre filters, and cach
   } });
   await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve)); t.after(app.close);
   const origin = `http://127.0.0.1:${app.server.address().port}`;
-  const search = await (await fetch(origin + '/api/films?q=discovery&genre=18')).json();
+  const searchResponse = await fetch(origin + '/api/films?q=discovery&genre=18');
+  assert.match(searchResponse.headers.get('cache-control'), /public.*s-maxage=300/);
+  assert.equal(searchResponse.headers.get('set-cookie'), null);
+  const search = await searchResponse.json();
   assert.equal(search.films[0].title, 'A New Discovery'); assert.ok(!JSON.stringify(search).includes('server-only-test-token'));
   assert.equal(calls[0].url.pathname, '/3/search/movie'); assert.equal(calls[0].authorization, 'Bearer server-only-test-token');
-  const detail = await (await fetch(origin + '/api/films/900001')).json(); assert.equal(detail.film.director, 'A Director');
+  const detailResponse = await fetch(origin + '/api/films/900001');
+  assert.equal(detailResponse.headers.get('cache-control'), 'no-store');
+  assert.equal((await fetch(origin + '/api/session')).headers.get('cache-control'), 'no-store');
+  const detail = await detailResponse.json(); assert.equal(detail.film.director, 'A Director');
   const count = calls.length; await fetch(origin + '/api/films/900001'); assert.equal(calls.length, count);
   const filtered = await (await fetch(origin + '/api/films?q=discovery&genre=35')).json(); assert.equal(filtered.films.length, 0);
 });
